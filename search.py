@@ -144,55 +144,46 @@ class SearchAlgorithm(ABC):
 
 
 class DFS(SearchAlgorithm):
-    """Depth-First Search algorithm."""
+    """Depth-First Search algorithm using a simple stack."""
     
     def search(self):
         """
-        Perform Depth-First Search on the graph.
+        Perform Depth-First Search on the graph using a stack.
         
         Returns:
-            dict: A dictionary mapping each destination to its path from origin (or None if unreachable)
-            int: The number of nodes expanded during the search
+            dict: Paths to destinations (or None if unreachable)
+            int: Number of nodes expanded
         """
-        # Reset counters and results
+        # Initialize tracking variables
         self.expanded_count = 0
         self.results = {dest: None for dest in self.destinations}
-        
-        # Track visited nodes to avoid cycles
         visited = set()
         
-        # Track the current path
-        path = []
+        # Stack holds: (node, path_so_far)
+        stack = [(self.origin, [self.origin])]
         
-        def dfs_recursive(node):
-            # Count this node as expanded
+        while stack:
+            # Get next node to explore
+            node, path = stack.pop()
+            
+            # Skip already visited nodes
+            if node in visited:
+                continue
+            
+            # Mark as visited and count
+            visited.add(node)
             self.expanded_count += 1
             
-            # Mark node as visited and add to current path
-            visited.add(node)
-            path.append(node)
-            
-            # Check if this node is a destination
+            # Check if we found a destination
             if node in self.destinations:
-                # Store the path to this destination
-                self.results[node] = path.copy()
-                return True  # Found a destination
+                self.results[node] = path
             
-            # Explore neighbors in sorted order
+            # Add neighbors to stack
             for neighbor in self.get_neighbors(node):
                 if neighbor not in visited:
-                    if dfs_recursive(neighbor):
-                        return True  # Propagate the success up
-            
-            # Backtrack: remove node from path when we're done exploring it
-            path.pop()
-            visited.remove(node)  # Allow node to be visited in different paths
-            return False  # No destinations found in this branch
+                    new_path = path + [neighbor]
+                    stack.append((neighbor, new_path))
         
-        # Start DFS from the origin node
-        dfs_recursive(self.origin)
-        
-        # Return results and node count
         return self.results, self.expanded_count
 
 
