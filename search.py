@@ -149,7 +149,7 @@ class SearchAlgorithm(ABC):
         return sorted([neighbor for neighbor, _ in self.graph.get(node, [])])
 
 
-class DepthFirstFinder(SearchAlgorithm):
+class DFS(SearchAlgorithm):
     """Depth-First Search algorithm using a standard Python list as a stack."""
 
     def run_search(self):
