@@ -1,158 +1,8 @@
-import argparse
-import sys
-from abc import ABC, abstractmethod
-import itertools # Added for IDDFS depth iteration
-
-
-def parse_graph(filename):
-    """
-    Parse a graph from a text file for the pathfinding assignment.
-
-    The file should have this format:
-    - Nodes section: Lists nodes with their coordinates
-    - Edges section: Lists directed edges with their costs
-    - Origin section: Specifies the starting node
-    - Destinations section: Lists the target nodes to reach
-
-    Returns:
-        graph: Dictionary where keys are node IDs and values are lists of (neighbor, cost) tuples
-        origin: Starting node ID
-        destinations: List of target node IDs
-        nodes: Dictionary of node coordinates
-    """
-    # Initialize data structures
-    graph = {}  # Will store {node_id: [(neighbor1, cost1), (neighbor2, cost2), ...]}
-    nodes = {}  # Will store {node_id: (x_coord, y_coord)}
-    origin = None  # Will store the starting node ID
-    destinations = []  # Will store list of target node IDs
-
-    # Read the file line by line
-    current_section = None
-    with open(filename, "r") as file:
-        for line in file:
-            line = line.strip()
-
-            # Skip empty lines and comments
-            if not line or line.startswith("#"):
-                continue
-
-            # Check for section headers
-            if line == "Nodes:":
-                current_section = "nodes"
-                continue
-            elif line == "Edges:":
-                current_section = "edges"
-                continue
-            elif line == "Origin:":
-                current_section = "origin"
-                continue
-            elif line == "Destinations:":
-                current_section = "destinations"
-                continue
-
-            # Process the line based on current section
-            if current_section == "nodes":
-                # Process a node line: "1: (4,1)"
-                if ":" in line:
-                    node_id_part, coord_part = line.split(":", 1)
-                    node_id = int(node_id_part.strip())
-
-                    # Extract coordinates from parentheses
-                    coord_text = coord_part.strip()[1:-1]  # Remove ( and )
-                    x, y = map(int, coord_text.split(","))
-
-                    # Store node coordinates
-                    nodes[node_id] = (x, y)
-
-                    # Initialize empty adjacency list for this node
-                    graph[node_id] = []
-
-            elif current_section == "edges":
-                # Process an edge line: "(2,1): 4"
-                if ":" in line:
-                    edge_part, cost_part = line.split(":", 1)
-
-                    # Extract nodes from parentheses
-                    nodes_text = edge_part.strip()[1:-1]  # Remove ( and )
-                    from_node, to_node = map(int, nodes_text.split(","))
-
-                    # Extract cost
-                    cost = int(cost_part.strip())
-
-                    # Add edge to graph
-                    if from_node not in graph:
-                        graph[from_node] = []
-                    graph[from_node].append((to_node, cost))
-
-                    # Ensure to_node exists in graph
-                    if to_node not in graph:
-                        graph[to_node] = []
-
-            elif current_section == "origin":
-                # Origin node is on a separate line after "Origin:"
-                if line:
-                    origin = int(line)
-
-            elif current_section == "destinations":
-                # Destinations are on a separate line after "Destinations:"
-                if line:
-                    destinations = [
-                        int(d.strip()) for d in line.split(";") if d.strip()
-                    ]
-
-    return graph, origin, destinations, nodes
-
-
-class SearchAlgorithm(ABC):
-    """Abstract base class for search algorithms."""
-
-    def __init__(self, graph, origin, destinations):
-        """
-        Initialize the search algorithm.
-
-        Args:
-            graph: Adjacency list representation of the graph with costs
-            origin: Starting node
-            destinations: List of destination nodes to find
-        """
-        self.graph = graph
-        self.origin = origin
-        # Store destinations as a set for faster lookups
-        self.destinations = set(destinations)
-        self.expanded_count = 0
-        # Initialize results with None for all original destinations
-        self.results = {dest: None for dest in destinations}
-        self.found_destinations = set() # Track which destinations we've found
-
-    @abstractmethod
-    def search(self):
-        """
-        Perform the search algorithm.
-
-        Returns:
-            dict: A dictionary mapping each destination to its path from origin (or None if unreachable)
-            int: The number of nodes expanded during the search
-        """
-        pass
-
-    def get_neighbors(self, node):
-        """
-        Get the neighbors of a node sorted by node ID.
-
-        Args:
-            node: The node to get neighbors for
-
-        Returns:
-            list: Sorted list of neighbor node IDs
-        """
-        # Extract neighbor IDs from (neighbor, cost) tuples and sort
-        return sorted([neighbor for neighbor, _ in self.graph.get(node, [])])
-
-
 class DFS(SearchAlgorithm):
     """Depth-First Search algorithm using a standard Python list as a stack."""
 
-    def run_search(self):
+    # Renamed this method from run_search to search
+    def search(self):
         """
         Perform Depth-First Search on the graph using a list as a stack.
 
@@ -160,16 +10,19 @@ class DFS(SearchAlgorithm):
             dict: Paths to target points (or None if unreachable)
             int: Number of nodes processed
         """
-        # Initialize tracking variables
-        self.nodes_processed_count = 0
-        # Reset results for this search run
-        self.paths_to_goals = {goal: None for goal in self.paths_to_goals}
-        goals_reached = set()
-        seen_nodes = set()
+        # --- Use variables from the base class __init__ ---
+        self.expanded_count = 0 # Changed from nodes_processed_count
+        # Reset results using the base class attribute name
+        self.results = {dest: None for dest in self.destinations} # Changed from paths_to_goals and target_points
+        # Use the base class attribute for found destinations
+        self.found_destinations = set() # Changed from goals_reached
+
+        seen_nodes = set() # Local variable for visited tracking in this search
 
         # Use a list as a stack: stores tuples (node, path_tuple)
         # Path is stored as a tuple internally for slight variation
-        nodes_to_visit = [(self.start_point, (self.start_point,))] # Path as tuple
+        # Use base class attribute 'origin'
+        nodes_to_visit = [(self.origin, (self.origin,))] # Changed from start_point
 
         while nodes_to_visit:
             # Get next item to explore (LIFO behavior with pop())
@@ -179,29 +32,31 @@ class DFS(SearchAlgorithm):
             if current_node in seen_nodes:
                 continue
 
-            # Mark as seen and count
+            # Mark as seen and count using the base class attribute
             seen_nodes.add(current_node)
-            self.nodes_processed_count += 1
+            self.expanded_count += 1 # Changed from nodes_processed_count
 
-            # Check if we found a target point
-            if current_node in self.target_points and current_node not in goals_reached:
-                # Convert path tuple back to list for the result
-                self.paths_to_goals[current_node] = list(path_tuple)
-                goals_reached.add(current_node)
+            # Check if we found a target point using base class attributes
+            if current_node in self.destinations and current_node not in self.found_destinations:
+                # Convert path tuple back to list for the result, store in base class attribute
+                self.results[current_node] = list(path_tuple) # Changed from paths_to_goals
+                self.found_destinations.add(current_node) # Changed from goals_reached
                 # Optional: Stop early if all targets are found
-                # if goals_reached == self.target_points:
-                #     break
+                # Use base class attributes for comparison
+                if self.found_destinations == self.destinations: # Changed from goals_reached == self.target_points
+                    break
 
             # Add adjacent nodes to the list acting as a stack
-            # Note: retrieve_neighbors sorts ascending, so reverse for stack LIFO
-            adjacent_nodes = self.retrieve_neighbors(current_node)
+            # Use base class method 'get_neighbors'
+            adjacent_nodes = self.get_neighbors(current_node) # Changed from retrieve_neighbors
             for next_node in reversed(adjacent_nodes):
                 if next_node not in seen_nodes:
                     # Create the extended path tuple
                     extended_path_tuple = path_tuple + (next_node,)
                     nodes_to_visit.append((next_node, extended_path_tuple))
 
-        return self.paths_to_goals, self.nodes_processed_count
+        # Return the base class attributes
+        return self.results, self.expanded_count # Changed from paths_to_goals, nodes_processed_count
 
 
 class IDDFS(SearchAlgorithm):
@@ -295,104 +150,3 @@ SEARCH_METHODS = {
 }
 
 
-def display_results(filename, method, results, expanded_count):
-    """
-    Display search results in the required format.
-
-    Args:
-        filename: The input file name
-        method: The search method used
-        results: Dictionary mapping destinations to paths
-        expanded_count: Number of nodes expanded during search
-    """
-    found_path = False
-    # Iterate through destinations in sorted order for consistent output
-    sorted_destinations = sorted(results.keys())
-
-    for dest in sorted_destinations:
-        path = results[dest]
-        if path:
-            print(f"{filename} {method}")
-            print(f"{dest} {expanded_count}")
-            print(" ".join(map(str, path)))
-            found_path = True
-            # We only need to output the first destination reached (as per original logic)
-            break # Exit after printing the first found path
-
-    if not found_path:
-        # If no destination was reached
-        print(f"{filename} {method}")
-        # Print expanded count even if no path is found
-        print(f"None {expanded_count}") # Modified to include expanded_count
-
-
-def main():
-    """Runs the graph search."""
-    # --- Get input from the command line ---
-    # Set up tool to read command line arguments
-    parser = argparse.ArgumentParser(description="Search a graph file.")
-    # Tell it we need a filename
-    parser.add_argument("filename", help="The graph file.")
-    # Tell it we need a search method (like 'dfs' or 'iddfs')
-    parser.add_argument(
-        "method", choices=list(SEARCH_METHODS.keys()), help="Search method (e.g., dfs)"
-    )
-    # Read the arguments provided by the user
-    args = parser.parse_args()
-
-    # --- Try to do the search ---
-    # Use a try block in case something goes wrong (like file not found)
-    try:
-        # Step 1: Read the graph from the file
-        print(f"Loading graph from {args.filename}...")
-        graph, origin, destinations, nodes = parse_graph(args.filename)
-        print("Graph loaded.")
-
-        # Basic check: Did we find an origin node in the file?
-        if origin is None:
-            print("Error: Could not find the 'Origin:' node in the file.")
-            sys.exit(1) # Stop the program
-
-        # Basic check: Did we find any destination nodes?
-        if not destinations:
-            print("Error: Could not find any 'Destinations:' in the file.")
-            sys.exit(1) # Stop the program
-
-        # Basic check: Does the origin node actually exist in the graph?
-        # (Maybe the file listed an origin node that doesn't have any edges or coordinates)
-        if origin not in graph:
-             print(f"Error: The origin node '{origin}' is listed but not defined in 'Nodes:' or 'Edges:'.")
-             sys.exit(1) # Stop the program
-
-        # (Skipping complex checks for whether destinations exist - assume file is mostly okay)
-
-        # Step 2: Figure out which search function to use
-        print(f"Selected search method: {args.method}")
-        # Look up the class (like DFS or IDDFS) based on the user's input method
-        search_class = SEARCH_METHODS[args.method] # Get the class directly
-
-        # Step 3: Create the search object
-        # Give the search class the graph details it needs
-        search_algorithm = search_class(graph, origin, destinations)
-        print("Search algorithm created.")
-
-        # Step 4: Run the search!
-        print("Starting search...")
-        results, expanded_count = search_algorithm.search()
-        print("Search finished.")
-
-        # Step 5: Show the results
-        display_results(args.filename, args.method, results, expanded_count)
-
-    # --- Handle errors ---
-    # If anything in the 'try' block failed, this 'except' block will run
-    except Exception as e:
-        # Print a general error message
-        print(f"\n--- An Error Occurred ---")
-        print(f"Error details: {e}")
-        print("Please check the file format and command line arguments.")
-        sys.exit(1) # Stop the program because of the error
-
-
-if __name__ == "__main__":
-    main()
