@@ -324,58 +324,71 @@ def display_results(filename, method, results, expanded_count):
 
 
 def main():
-    """Main program function - parses graph and handles command line arguments"""
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Graph search program")
-    parser.add_argument("filename", help="Graph file path")
+    """Runs the graph search."""
+    # --- Get input from the command line ---
+    # Set up tool to read command line arguments
+    parser = argparse.ArgumentParser(description="Search a graph file.")
+    # Tell it we need a filename
+    parser.add_argument("filename", help="The graph file.")
+    # Tell it we need a search method (like 'dfs' or 'iddfs')
     parser.add_argument(
-        "method", choices=list(SEARCH_METHODS.keys()), help="Search method"
+        "method", choices=list(SEARCH_METHODS.keys()), help="Search method (e.g., dfs)"
     )
+    # Read the arguments provided by the user
     args = parser.parse_args()
 
+    # --- Try to do the search ---
+    # Use a try block in case something goes wrong (like file not found)
     try:
-        # Parse graph by calling the parse_graph function
+        # Step 1: Read the graph from the file
+        print(f"Loading graph from {args.filename}...")
         graph, origin, destinations, nodes = parse_graph(args.filename)
+        print("Graph loaded.")
 
-        # Check if origin or destinations are valid nodes
-        if origin is None or origin not in graph:
-             raise ValueError(f"Origin node '{origin}' not found in graph nodes.")
+        # Basic check: Did we find an origin node in the file?
+        if origin is None:
+            print("Error: Could not find the 'Origin:' node in the file.")
+            sys.exit(1) # Stop the program
+
+        # Basic check: Did we find any destination nodes?
         if not destinations:
-             raise ValueError("No destination nodes specified.")
-        for dest in destinations:
-             if dest not in graph:
-                 # Allow destinations that might not be keys if they only appear as targets
-                 is_target = any(dest in [n for n,c in neighbors] for neighbors in graph.values())
-                 if not is_target:
-                     print(f"Warning: Destination node '{dest}' not found as a source or target node in the graph.")
-                     # Depending on requirements, you might raise ValueError here instead
+            print("Error: Could not find any 'Destinations:' in the file.")
+            sys.exit(1) # Stop the program
 
+        # Basic check: Does the origin node actually exist in the graph?
+        # (Maybe the file listed an origin node that doesn't have any edges or coordinates)
+        if origin not in graph:
+             print(f"Error: The origin node '{origin}' is listed but not defined in 'Nodes:' or 'Edges:'.")
+             sys.exit(1) # Stop the program
 
-        # Get the appropriate search class based on the method
-        search_class = SEARCH_METHODS.get(args.method)
+        # (Skipping complex checks for whether destinations exist - assume file is mostly okay)
 
-        if search_class:
-            # Create an instance of the search algorithm
-            search_algorithm = search_class(graph, origin, destinations)
+        # Step 2: Figure out which search function to use
+        print(f"Selected search method: {args.method}")
+        # Look up the class (like DFS or IDDFS) based on the user's input method
+        search_class = SEARCH_METHODS[args.method] # Get the class directly
 
-            # Run the selected search algorithm
-            results, expanded_count = search_algorithm.search()
+        # Step 3: Create the search object
+        # Give the search class the graph details it needs
+        search_algorithm = search_class(graph, origin, destinations)
+        print("Search algorithm created.")
 
-            # Display the results
-            display_results(args.filename, args.method, results, expanded_count)
-        else:
-            # This case should not happen due to argparse choices
-            print(f"Error: Method '{args.method}' is not implemented")
+        # Step 4: Run the search!
+        print("Starting search...")
+        results, expanded_count = search_algorithm.search()
+        print("Search finished.")
 
-    except FileNotFoundError:
-        print(f"Error: File not found at '{args.filename}'")
-        sys.exit(1)
-    except ValueError as ve:
-         print(f"Error in graph file format or content: {ve}")
-         sys.exit(1)
+        # Step 5: Show the results
+        display_results(args.filename, args.method, results, expanded_count)
+
+    # --- Handle errors ---
+    # If anything in the 'try' block failed, this 'except' block will run
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        sys.exit(1)
+        # Print a general error message
+        print(f"\n--- An Error Occurred ---")
+        print(f"Error details: {e}")
+        print("Please check the file format and command line arguments.")
+        sys.exit(1) # Stop the program because of the error
 
 
 if __name__ == "__main__":
