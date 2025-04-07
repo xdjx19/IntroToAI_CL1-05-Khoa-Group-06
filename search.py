@@ -227,4 +227,143 @@ class IDDFS(SearchAlgorithm):
                 found_new_dest_at_depth = True
                 # Continue DLS: other destinations might be at the same depth
 
-            # Stop exploring this path if the depth limit 
+            # Stop exploring this path if the depth limit is reached
+            if current_depth >= depth_limit:
+                continue
+
+            # Add neighbors to the stack if they don't create a cycle in the current path
+            # and haven't been visited more shallowly in this DLS run.
+            neighbors = self.get_neighbors(node)
+            for neighbor in reversed(neighbors):
+                # Basic cycle check within the current path
+                if neighbor not in path:
+                    # Check if visiting this neighbor would be redundant in this DLS
+                    if neighbor not in visited_in_dls or visited_in_dls[neighbor] > current_depth + 1:
+                        new_path = path + [neighbor]
+                        stack.append((neighbor, new_path, current_depth + 1))
+
+        return found_new_dest_at_depth
+
+    def search(self):
+        """
+        Performs the full IDDFS by iteratively calling DLS with increasing depth limits.
+        """
+        # Reset overall search state
+        self.expanded_count = 0
+        self.results = {dest: None for dest in self.destinations}
+        self.found_destinations = set()
+
+        # Iterate through depth limits: 0, 1, 2, ...
+        for depth_limit in itertools.count():
+            # Perform DLS for the current depth limit
+            self.depth_limited_search(depth_limit)
+
+            # Stop if all target destinations have been found
+            if len(self.found_destinations) == len(self.destinations):
+                break
+
+        return self.results, self.expanded_count
+
+
+# --- Search Method Mapping ---
+# Maps command-line method names to their corresponding algorithm classes
+SEARCH_METHODS = {
+    "dfs": DFS,
+    "iddfs": IDDFS,
+    # 'bfs': BFS, # Example for adding Breadth-First Search later
+}
+
+
+# --- Results Display Function ---
+def display_results(filename, method, results, expanded_count):
+    """
+    Prints the search results in the specified format.
+
+    Args:
+        filename: The input graph file name.
+        method: The search method used (e.g., 'dfs').
+        results: The dictionary mapping destinations to paths (or None).
+        expanded_count: The total number of nodes expanded.
+    """
+    found_path = False
+    # Sort destinations for consistent output order
+    sorted_destinations = sorted(results.keys())
+
+    # Check each destination for a found path
+    for dest in sorted_destinations:
+        path = results[dest]
+        if path:
+            # Print results for the first found path (as per apparent requirement)
+            print(f"{filename} {method}")
+            print(f"{dest} {expanded_count}")
+            print(" ".join(map(str, path))) # Join path nodes with spaces
+            found_path = True
+            break # Exit after printing the first path
+
+    # If no path was found to any destination
+    if not found_path:
+        print(f"{filename} {method}")
+        print(f"None {expanded_count}") # Indicate no path found, still show count
+
+
+# --- Main Execution Block ---
+def main():
+    """Parses arguments, runs the selected search algorithm, and displays results."""
+    # --- Set up command-line argument parsing ---
+    parser = argparse.ArgumentParser(description="Search a graph file.")
+    parser.add_argument("filename", help="Path to the graph file.")
+    parser.add_argument(
+        "method",
+        choices=list(SEARCH_METHODS.keys()), # Allow only defined methods
+        help="Search method (e.g., dfs, iddfs)",
+    )
+    args = parser.parse_args() # Parse the actual arguments provided
+
+    # --- Execute search within a try block for error handling ---
+    try:
+        # 1. Load graph data from the specified file
+        print(f"Loading graph from {args.filename}...")
+        graph, origin, destinations, nodes = parse_graph(args.filename)
+        print("Graph loaded.")
+
+        # --- Basic Input Validation ---
+        if origin is None:
+            print("Error: Origin node not specified in the file.")
+            sys.exit(1)
+        if not destinations:
+            print("Error: No destinations specified in the file.")
+            sys.exit(1)
+        if origin not in graph:
+            print(f"Error: Origin node '{origin}' not found in graph nodes/edges.")
+            sys.exit(1)
+        # (Could add checks for destinations existing in graph too)
+
+        # 2. Select the appropriate search algorithm class
+        print(f"Selected search method: {args.method}")
+        search_class = SEARCH_METHODS[args.method]
+
+        # 3. Instantiate the search algorithm object
+        search_algorithm = search_class(graph, origin, destinations)
+        print("Search algorithm created.")
+
+        # 4. Run the search
+        print("Starting search...")
+        results, expanded_count = search_algorithm.search()
+        print("Search finished.")
+
+        # 5. Display the results
+        display_results(args.filename, args.method, results, expanded_count)
+
+    # --- Handle potential errors during execution ---
+    except Exception as e:
+        # Catch any unexpected errors during parsing or search
+        print(f"\n--- An Error Occurred ---")
+        print(f"Error details: {e}")
+        print("Please check the file format and command line arguments.")
+        sys.exit(1) # Exit with an error code
+
+
+# --- Script Entry Point ---
+# Ensures main() is called only when the script is executed directly
+if __name__ == "__main__":
+    main()
