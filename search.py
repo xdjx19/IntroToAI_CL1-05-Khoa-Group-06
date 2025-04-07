@@ -149,56 +149,59 @@ class SearchAlgorithm(ABC):
         return sorted([neighbor for neighbor, _ in self.graph.get(node, [])])
 
 
-class DFS(SearchAlgorithm):
-    """Depth-First Search algorithm using a simple stack."""
+class DepthFirstFinder(SearchAlgorithm):
+    """Depth-First Search algorithm using a standard Python list as a stack."""
 
-    def search(self):
+    def run_search(self):
         """
-        Perform Depth-First Search on the graph using a stack.
+        Perform Depth-First Search on the graph using a list as a stack.
 
         Returns:
-            dict: Paths to destinations (or None if unreachable)
-            int: Number of nodes expanded
+            dict: Paths to target points (or None if unreachable)
+            int: Number of nodes processed
         """
         # Initialize tracking variables
-        self.expanded_count = 0
+        self.nodes_processed_count = 0
         # Reset results for this search run
-        self.results = {dest: None for dest in self.results}
-        self.found_destinations = set()
-        visited = set()
+        self.paths_to_goals = {goal: None for goal in self.paths_to_goals}
+        goals_reached = set()
+        seen_nodes = set()
 
-        # Stack holds: (node, path_so_far)
-        stack = [(self.origin, [self.origin])]
+        # Use a list as a stack: stores tuples (node, path_tuple)
+        # Path is stored as a tuple internally for slight variation
+        nodes_to_visit = [(self.start_point, (self.start_point,))] # Path as tuple
 
-        while stack:
-            # Get next node to explore
-            node, path = stack.pop()
+        while nodes_to_visit:
+            # Get next item to explore (LIFO behavior with pop())
+            current_node, path_tuple = nodes_to_visit.pop()
 
-            # Skip already visited nodes
-            if node in visited:
+            # Skip nodes already fully processed
+            if current_node in seen_nodes:
                 continue
 
-            # Mark as visited and count
-            visited.add(node)
-            self.expanded_count += 1
+            # Mark as seen and count
+            seen_nodes.add(current_node)
+            self.nodes_processed_count += 1
 
-            # Check if we found a destination
-            if node in self.destinations and node not in self.found_destinations:
-                self.results[node] = path
-                self.found_destinations.add(node)
-                # Optional: Stop if all destinations found
-                # if self.found_destinations == self.destinations:
+            # Check if we found a target point
+            if current_node in self.target_points and current_node not in goals_reached:
+                # Convert path tuple back to list for the result
+                self.paths_to_goals[current_node] = list(path_tuple)
+                goals_reached.add(current_node)
+                # Optional: Stop early if all targets are found
+                # if goals_reached == self.target_points:
                 #     break
 
-            # Add neighbors to stack (in reverse sorted order for correct DFS expansion)
-            # Note: get_neighbors sorts ascending, so reverse for stack LIFO
-            neighbors = self.get_neighbors(node)
-            for neighbor in reversed(neighbors):
-                if neighbor not in visited:
-                    new_path = path + [neighbor]
-                    stack.append((neighbor, new_path))
+            # Add adjacent nodes to the list acting as a stack
+            # Note: retrieve_neighbors sorts ascending, so reverse for stack LIFO
+            adjacent_nodes = self.retrieve_neighbors(current_node)
+            for next_node in reversed(adjacent_nodes):
+                if next_node not in seen_nodes:
+                    # Create the extended path tuple
+                    extended_path_tuple = path_tuple + (next_node,)
+                    nodes_to_visit.append((next_node, extended_path_tuple))
 
-        return self.results, self.expanded_count
+        return self.paths_to_goals, self.nodes_processed_count
 
 
 class IDDFS(SearchAlgorithm):
