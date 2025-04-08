@@ -307,7 +307,7 @@ class IDDFS(SearchAlgorithm):
 
         return self.results, self.expanded_count
     
-    # --- Breadth-First Search Implementation ---
+    # --- Breadth-First Search Implementation --- (Dwayne D'Souza)
 class BFS(SearchAlgorithm):
     """Implements Breadth-First Search using a queue."""
 
@@ -346,7 +346,7 @@ class BFS(SearchAlgorithm):
         return self.results, self.expanded_count
 
 
-# --- Uniform Cost Search Implementation ---
+# --- Uniform Cost Search Implementation --- (Dwayne D'Souza)
 class UCS(SearchAlgorithm):
     """Implements Uniform Cost Search using a priority queue."""
 
