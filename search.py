@@ -95,7 +95,7 @@ def parse_graph(filename):
 class SearchAlgorithm(ABC):
     """Defines the common interface for all search algorithms."""
 
-    def __init__(self, graph, origin, destinations):
+    def __init__(self, graph, origin, destinations, nodes):
         self.graph = graph
         self.origin = origin
         # Store destinations as a set for efficient membership testing.
@@ -103,6 +103,7 @@ class SearchAlgorithm(ABC):
         # much faster than O(n) for lists, especially for large numbers
         # of destinations. Also automatically handles duplicate destinations.
         self.destinations = set(destinations)
+        self.nodes = nodes
         self.expanded_count = 0  # Counter for nodes expanded during search
         # Stores the path found for each destination (initially None)
         self.results = {dest: None for dest in destinations}
@@ -181,6 +182,48 @@ class DFS(SearchAlgorithm):
                 if next_node not in seen_nodes:
                     extended_path = path_tuple + (next_node,)
                     stack.append((next_node, extended_path))
+
+        return self.results, self.expanded_count
+import heapq
+import math
+
+class GBFS(SearchAlgorithm):
+    """Greedy Best-First Search algorithm using a priority queue."""
+
+    def heuristic(self, node, goal, nodes):
+        x1, y1 = nodes[node]
+        x2, y2 = nodes[goal]
+        return math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+
+    def search(self):
+        self.expanded_count = 0
+        self.results = {dest: None for dest in self.destinations}
+        visited = set()
+
+        # Use the closest goal as the main target
+        goal = min(self.destinations, key=lambda d: self.heuristic(self.origin, d, self.nodes))
+
+        # Priority queue: (heuristic value, node, path)
+        queue = [(self.heuristic(self.origin, goal, self.nodes), self.origin, [self.origin])]
+
+        while queue:
+            _, current, path = heapq.heappop(queue)
+
+            if current in visited:
+                continue
+
+            visited.add(current)
+            self.expanded_count += 1
+
+            if current in self.destinations:
+                self.results[current] = path
+                break  # Stop when one goal is reached
+
+            for neighbor in self.get_neighbors(current):
+                if neighbor not in visited:
+                    new_path = path + [neighbor]
+                    h = self.heuristic(neighbor, goal, self.nodes)
+                    heapq.heappush(queue, (h, neighbor, new_path))
 
         return self.results, self.expanded_count
 
@@ -269,6 +312,7 @@ class IDDFS(SearchAlgorithm):
 # Maps command-line method names to their corresponding algorithm classes
 SEARCH_METHODS = {
     "dfs": DFS,
+    "gbfs": GBFS,
     "iddfs": IDDFS,
     # 'bfs': BFS, # Example for adding Breadth-First Search later
 }
@@ -343,7 +387,7 @@ def main():
         search_class = SEARCH_METHODS[args.method]
 
         # 3. Instantiate the search algorithm object
-        search_algorithm = search_class(graph, origin, destinations)
+        search_algorithm = search_class(graph, origin, destinations, nodes)
         print("Search algorithm created.")
 
         # 4. Run the search
