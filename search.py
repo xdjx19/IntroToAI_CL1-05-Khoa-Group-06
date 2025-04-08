@@ -3,9 +3,7 @@ import argparse  # For parsing command-line arguments
 import sys  # For system-specific functions like sys.exit
 from abc import ABC, abstractmethod  # For creating abstract base classes
 import itertools  # Used for IDDFS depth iteration (itertools.count)
-from collections import deque
-import heapq
-
+from collections import deque #Used for BFS to queue to store multiple tuples
 
 # --- Graph Parsing Function ---
 def parse_graph(filename):
@@ -308,7 +306,88 @@ class IDDFS(SearchAlgorithm):
                 break
 
         return self.results, self.expanded_count
+    
+    # --- Breadth-First Search Implementation ---
+class BFS(SearchAlgorithm):
+    """Implements Breadth-First Search using a queue."""
 
+    def search(self):
+        # Reset search-specific state
+        self.expanded_count = 0
+        self.results = {dest: None for dest in self.destinations}
+        self.found_destinations = set()
+
+        # Use a queue for BFS: stores tuples (node, path_list)
+        # Initialize with the origin node and its path (just the origin itself)
+        queue = deque([(self.origin, [self.origin])])
+        # Track visited nodes to avoid cycles
+        visited = set([self.origin])
+
+        while queue:
+            current_node, path = queue.popleft()
+            self.expanded_count += 1
+
+            # Check if current node is an unfound destination
+            if current_node in self.destinations and current_node not in self.found_destinations:
+                self.results[current_node] = path
+                self.found_destinations.add(current_node)
+                # Optimization: Stop if all destinations are found
+                if self.found_destinations == self.destinations:
+                    break
+
+            # Add neighbors to the queue
+            neighbors = self.get_neighbors(current_node)
+            for neighbor in neighbors:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    new_path = path + [neighbor]
+                    queue.append((neighbor, new_path))
+
+        return self.results, self.expanded_count
+
+
+# --- Uniform Cost Search Implementation ---
+class UCS(SearchAlgorithm):
+    """Implements Uniform Cost Search using a priority queue."""
+
+    def search(self):
+        # Reset search-specific state
+        self.expanded_count = 0
+        self.results = {dest: None for dest in self.destinations}
+        self.found_destinations = set()
+
+        # Priority queue: (total_cost, node, path_list)
+        # Initialize with the origin node (cost 0) and its path
+        heap = [(0, self.origin, [self.origin])]
+        # Track visited nodes and their minimum costs
+        visited = {}
+
+        while heap:
+            current_cost, current_node, path = heapq.heappop(heap)
+            self.expanded_count += 1
+
+            # Skip if we've found a better path to this node already
+            if current_node in visited and visited[current_node] < current_cost:
+                continue
+
+            # Check if current node is an unfound destination
+            if current_node in self.destinations and current_node not in self.found_destinations:
+                self.results[current_node] = path
+                self.found_destinations.add(current_node)
+                # Optimization: Stop if all destinations are found
+                if self.found_destinations == self.destinations:
+                    break
+
+            # Add neighbors to the priority queue
+            for neighbor, edge_cost in self.graph.get(current_node, []):
+                new_cost = current_cost + edge_cost
+                # Only proceed if this is a better path than previously found
+                if neighbor not in visited or new_cost < visited.get(neighbor, float('inf')):
+                    visited[neighbor] = new_cost
+                    new_path = path + [neighbor]
+                    heapq.heappush(heap, (new_cost, neighbor, new_path))
+
+        return self.results, self.expanded_count
 
 # --- Search Method Mapping ---
 # Maps command-line method names to their corresponding algorithm classes
@@ -316,6 +395,8 @@ SEARCH_METHODS = {
     "dfs": DFS,
     "gbfs": GBFS,
     "iddfs": IDDFS,
+    "bfs": BFS,
+    "ucs": UCS,
     # 'bfs': BFS, # Example for adding Breadth-First Search later
 }
 
@@ -407,118 +488,6 @@ def main():
         print(f"Error details: {e}")
         print("Please check the file format and command line arguments.")
         sys.exit(1) # Exit with an error code
-
-#BFS and UCS Code (Dwayne D'Souza)
-
-
-def read_graph(filename):
-    with open(filename, 'r') as f:
-        lines = [line.strip() for line in f.readlines()]
-
-    nodes_section = edges_section = False
-    nodes = {}
-    edges = {}
-    origin = None
-    destinations = []
-
-    for line in lines:
-        if line.startswith("Nodes:"):
-            nodes_section = True
-            edges_section = False
-            continue
-        elif line.startswith("Edges:"):
-            nodes_section = False
-            edges_section = True
-            continue
-        elif line.startswith("Origin:"):
-            origin = int(line.split(":")[1].strip())
-        elif line.startswith("Destinations:"):
-            destinations = list(map(int, line.split(":")[1].strip().split(";")))
-        elif nodes_section and ':' in line:
-            parts = line.split(":")
-            node = int(parts[0].strip())
-            coord = tuple(map(int, parts[1].strip(" ()").split(",")))
-            nodes[node] = coord
-        elif edges_section and ':' in line:
-            parts = line.split(":")
-            edge_nodes = tuple(map(int, parts[0].strip("()").split(",")))
-            cost = int(parts[1].strip())
-            if edge_nodes[0] not in edges:
-                edges[edge_nodes[0]] = []
-            edges[edge_nodes[0]].append((edge_nodes[1], cost))
-
-    return nodes, edges, origin, destinations
-
-def bfs(edges, start, goals):
-    queue = deque([[start]])
-    visited = set()
-    nodes_created = 0
-
-    while queue:
-        path = queue.popleft()
-        node = path[-1]
-        nodes_created += 1
-
-        if node in goals:
-            return node, nodes_created, path
-
-        if node not in visited:
-            visited.add(node)
-            for neighbor, _ in sorted(edges.get(node, []), key=lambda x: x[0]):
-                if neighbor not in visited:
-                    new_path = list(path)
-                    new_path.append(neighbor)
-                    queue.append(new_path)
-
-    return None, nodes_created, []
-
-def ucs(edges, start, goals):
-    frontier = [(0, [start])]  # (cost, path)
-    visited = {}
-    nodes_created = 0
-
-    while frontier:
-        cost, path = heapq.heappop(frontier)
-        node = path[-1]
-        nodes_created += 1
-
-        if node in goals:
-            return node, nodes_created, path
-
-        if node not in visited or cost < visited[node]:
-            visited[node] = cost
-            for neighbor, edge_cost in sorted(edges.get(node, []), key=lambda x: x[0]):
-                new_cost = cost + edge_cost
-                new_path = list(path)
-                new_path.append(neighbor)
-                heapq.heappush(frontier, (new_cost, new_path))
-
-    return None, nodes_created, []
-
-def main():
-    if len(sys.argv) != 3:
-        print("Usage: python search.py <filename> <method>")
-        return
-
-    filename = sys.argv[1]
-    method = sys.argv[2].lower()
-
-    nodes, edges, origin, destinations = read_graph(filename)
-
-    if method == "bfs":
-        goal, count, path = bfs(edges, origin, destinations)
-    elif method == "ucs":
-        goal, count, path = ucs(edges, origin, destinations)
-    else:
-        print("Only 'bfs' and 'ucs' methods are supported in this version.")
-        return
-
-    print(f"{filename} {method}")
-    if goal:
-        print(f"{goal} {count}")
-        print(" -> ".join(map(str, path)))
-    else:
-        print("No path found.")
 
 # --- Script Entry Point ---
 # Ensures main() is called only when the script is executed directly
