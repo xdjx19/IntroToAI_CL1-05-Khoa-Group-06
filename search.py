@@ -345,6 +345,75 @@ class BFS(SearchAlgorithm):
 
         return self.results, self.expanded_count
 
+class AStar(SearchAlgorithm):
+    """Implements A* search using a priority queue and Euclidean distance heuristic."""
+    
+    def __init__(self, graph, origin, destinations, nodes):
+        super().__init__(graph, origin, destinations, nodes)  # Fixed: properly pass nodes parameter
+        
+    def heuristic(self, node):
+        """Euclidean distance to the closest destination."""
+        if not self.nodes or node not in self.nodes:
+            return 0  # Return 0 if coordinates not available
+            
+        min_dist = float('inf')  # Initialize to a very large number (infinity)
+        x1, y1 = self.nodes[node]  # Get the coordinates of the current node
+        
+        for dest in self.destinations:  # Loop through all destinations
+            if dest in self.nodes:  # Make sure the destination has coordinates
+                x2, y2 = self.nodes[dest]  # Get the coordinates of the destination
+                dist = ((x2 - x1)**2 + (y2 - y1)**2)**0.5  # Calculate the Euclidean distance
+                if dist < min_dist:  # Update min_dist if we found a closer destination
+                    min_dist = dist
+                    
+        return min_dist
+
+    def search(self):
+        # Reset the search state
+        self.expanded_count = 0  # Number of nodes expanded
+        self.results = {dest: None for dest in self.destinations}  # Initialize the results
+        self.found_destinations = set()  # Set to track found destinations
+
+        # Priority queue: (est_total_cost, cost_so_far, node, path, node_id_for_tiebreaker)
+        open_set = []
+        # Start with the origin node, its heuristic value, 0 cost, and just the origin in the path
+        heapq.heappush(open_set, (self.heuristic(self.origin), 0, self.origin, [self.origin], self.origin))
+        
+        # Track visited nodes and their costs
+        visited = {}  # {node: best_cost_so_far}
+
+        while open_set:
+            est_total, cost_so_far, current, path, _ = heapq.heappop(open_set)
+
+            # Skip if we've found a better path to this node already
+            if current in visited and visited[current] <= cost_so_far:
+                continue
+                
+            # Record this as the best path to the current node
+            visited[current] = cost_so_far
+            self.expanded_count += 1
+
+            # Check if this is a destination we haven't found yet
+            if current in self.destinations and current not in self.found_destinations:
+                self.results[current] = path
+                self.found_destinations.add(current)
+                # If we've found all destinations, we can stop
+                if self.found_destinations == self.destinations:
+                    break
+
+            # Explore neighbors
+            for neighbor, edge_cost in self.graph.get(current, []):
+                new_cost = cost_so_far + edge_cost
+                # Only consider if we haven't visited or found a better path
+                if neighbor not in visited or new_cost < visited.get(neighbor, float('inf')):
+                    est_cost = new_cost + self.heuristic(neighbor)
+                    # Add to priority queue with all necessary info
+                    heapq.heappush(
+                        open_set,
+                        (est_cost, new_cost, neighbor, path + [neighbor], neighbor)
+                    )
+
+        return self.results, self.expanded_count
 
 # --- Uniform Cost Search Implementation --- (Dwayne D'Souza)
 class UCS(SearchAlgorithm):
@@ -397,6 +466,7 @@ SEARCH_METHODS = {
     "iddfs": IDDFS,
     "bfs": BFS,
     "ucs": UCS,
+    "astar": AStar,
     # 'bfs': BFS, # Example for adding Breadth-First Search later
 }
 
