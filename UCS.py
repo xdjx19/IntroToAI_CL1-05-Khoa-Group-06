@@ -1,5 +1,6 @@
 import sys
 from collections import deque
+import heapq
 
 def read_graph(filename):
     with open(filename, 'r') as f:
@@ -62,20 +63,46 @@ def bfs(edges, start, goals):
 
     return None, nodes_created, []
 
+def ucs(edges, start, goals):
+    frontier = [(0, [start])]  # (cost, path)
+    visited = {}
+    nodes_created = 0
+
+    while frontier:
+        cost, path = heapq.heappop(frontier)
+        node = path[-1]
+        nodes_created += 1
+
+        if node in goals:
+            return node, nodes_created, path
+
+        if node not in visited or cost < visited[node]:
+            visited[node] = cost
+            for neighbor, edge_cost in sorted(edges.get(node, []), key=lambda x: x[0]):
+                new_cost = cost + edge_cost
+                new_path = list(path)
+                new_path.append(neighbor)
+                heapq.heappush(frontier, (new_cost, new_path))
+
+    return None, nodes_created, []
+
 def main():
     if len(sys.argv) != 3:
-        print("Usage: python search.py <filename> bfs")
+        print("Usage: python search.py <filename> <method>")
         return
 
     filename = sys.argv[1]
     method = sys.argv[2].lower()
 
-    if method != "bfs":
-        print("Only 'bfs' method is supported in this version.")
-        return
-
     nodes, edges, origin, destinations = read_graph(filename)
-    goal, count, path = bfs(edges, origin, destinations)
+
+    if method == "bfs":
+        goal, count, path = bfs(edges, origin, destinations)
+    elif method == "ucs":
+        goal, count, path = ucs(edges, origin, destinations)
+    else:
+        print("Only 'bfs' and 'ucs' methods are supported in this version.")
+        return
 
     print(f"{filename} {method}")
     if goal:
