@@ -1,7 +1,7 @@
 @echo off
 REM This batch script runs all search methods for a given map file.
 
-SET FILENAME=PathFinder-test.txt.txt
+SET FILENAME=PathFinder-test.txt
 
 echo Running BFS...
 python search.py %FILENAME% bfs
