@@ -4,6 +4,64 @@ import sys  # For system-specific functions like sys.exit
 from abc import ABC, abstractmethod  # For creating abstract base classes
 import itertools  # Used for IDDFS depth iteration (itertools.count)
 from collections import deque #Used for BFS to queue to store multiple tuples
+import matplotlib.pyplot as plt
+import networkx as nx
+import os
+
+def visualize_path(graph, nodes, path, filename, method):
+
+    try:
+
+        # Create a networkx graph
+        G = nx.DiGraph()
+        
+        # Add nodes with positions
+        for node_id, pos in nodes.items():
+            G.add_node(node_id, pos=pos)
+        
+        # Add edges
+        for node_id, neighbors in graph.items():
+            for neighbor, _ in neighbors:  # Ignoring edge weights
+                G.add_edge(node_id, neighbor)
+        
+        # Get positions for all nodes
+        pos = nx.get_node_attributes(G, 'pos')
+        
+        # Create figure
+        plt.figure(figsize=(10, 8))
+        
+        # Draw the base graph
+        nx.draw_networkx_edges(G, pos, alpha=0.3, arrows=True)
+        nx.draw_networkx_nodes(G, pos, node_size=500, node_color='lightblue')
+        
+        # Highlight the path if it exists
+        if path:
+            path_edges = list(zip(path[:-1], path[1:]))
+            nx.draw_networkx_nodes(G, pos, nodelist=path, node_size=500, node_color='salmon')
+            nx.draw_networkx_edges(G, pos, edgelist=path_edges, width=2, edge_color='red', arrows=True)
+            
+            # Highlight start and end nodes
+            nx.draw_networkx_nodes(G, pos, nodelist=[path[0]], node_size=600, node_color='green')
+            nx.draw_networkx_nodes(G, pos, nodelist=[path[-1]], node_size=600, node_color='purple')
+        
+        # Add node labels (just the node IDs)
+        nx.draw_networkx_labels(G, pos)
+        
+        # Remove axis
+        plt.axis('off')
+        plt.title(f"Path using {method.upper()} - {os.path.basename(filename)}")
+        
+        # Save the figure
+        output_filename = f"{os.path.splitext(os.path.basename(filename))[0]}_{method}_path.png"
+        plt.savefig(output_filename, format="PNG", dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Graph visualization saved as {output_filename}")
+        
+    except ImportError:
+        print("Unable to create visualization. Make sure matplotlib and networkx are installed.")
+        print("You can install them with: pip install matplotlib networkx")
+
 
 # --- Graph Parsing Function ---
 def parse_graph(filename):
@@ -471,16 +529,9 @@ SEARCH_METHODS = {
 }
 
 
-# --- Results Display Function ---
-def display_results(filename, method, results, expanded_count):
+def display_results(filename, method, results, expanded_count, graph, nodes):
     """
-    Prints the search results in the specified format.
-
-    Args:
-        filename: The input graph file name.
-        method: The search method used (e.g., 'dfs').
-        results: The dictionary mapping destinations to paths (or None).
-        expanded_count: The total number of nodes expanded.
+    Prints the search results in the specified format and generates a visualization.
     """
     found_path = False
     # Sort destinations for consistent output order
@@ -490,10 +541,14 @@ def display_results(filename, method, results, expanded_count):
     for dest in sorted_destinations:
         path = results[dest]
         if path:
-            # Print results for the first found path (as per apparent requirement)
+            # Print results for the first found path
             print(f"{filename} {method}")
             print(f"{dest} {expanded_count}")
             print(" ".join(map(str, path))) # Join path nodes with spaces
+            
+            # Create a visualization of the path
+            visualize_path(graph, nodes, path, filename, method)
+            
             found_path = True
             break # Exit after printing the first path
 
@@ -501,6 +556,7 @@ def display_results(filename, method, results, expanded_count):
     if not found_path:
         print(f"{filename} {method}")
         print(f"None {expanded_count}") # Indicate no path found, still show count
+
 
 
 # --- Main Execution Block ---
@@ -549,7 +605,7 @@ def main():
         print("Search finished.")
 
         # 5. Display the results
-        display_results(args.filename, args.method, results, expanded_count)
+        display_results(args.filename, args.method, results, expanded_count, graph, nodes)
 
     # --- Handle potential errors during execution ---
     except Exception as e:
