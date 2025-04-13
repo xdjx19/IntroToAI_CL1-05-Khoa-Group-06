@@ -290,80 +290,110 @@ class GBFS(SearchAlgorithm):
 class IDDFS(SearchAlgorithm):
     """Implements Iterative Deepening Depth-First Search."""
 
-    def depth_limited_search(self, depth_limit):
-        """
-        Performs a Depth-Limited Search (DLS) up to a specified depth.
-
-        Args:
-            depth_limit: The maximum depth to explore in this iteration.
-
-        Returns:
-            bool: True if any new destination was found at this depth, False otherwise.
-        """
-        found_new_dest_at_depth = False
-        # Stack stores: (node, path_list, current_depth)
-        stack = [(self.origin, [self.origin], 0)]
-        # Tracks visited nodes *at specific depths* within this DLS iteration
-        # Helps avoid cycles and redundant exploration within this depth limit.
-        # Format: {node_id: shallowest_depth_visited_at_in_this_dls}
-        visited_in_dls = {}
-
-        while stack:
-            node, path, current_depth = stack.pop()
-
-            # Pruning based on visits within this DLS:
-            # Skip if we've already visited this node at a shallower or equal depth
-            # during this specific DLS run.
-            if node in visited_in_dls and visited_in_dls[node] <= current_depth:
-                continue
-            visited_in_dls[node] = current_depth # Record visit at this depth
-
-            # Count expansion (note: IDDFS re-expands nodes at different depths)
-            self.expanded_count += 1
-
-            # Check if it's a destination we haven't found a path for yet
-            if node in self.destinations and node not in self.found_destinations:
-                self.results[node] = path
-                self.found_destinations.add(node)
-                found_new_dest_at_depth = True
-                # Continue DLS: other destinations might be at the same depth
-
-            # Stop exploring this path if the depth limit is reached
-            if current_depth >= depth_limit:
-                continue
-
-            # Add neighbors to the stack if they don't create a cycle in the current path
-            # and haven't been visited more shallowly in this DLS run.
-            neighbors = self.get_neighbors(node)
-            for neighbor in reversed(neighbors):
-                # Basic cycle check within the current path
-                if neighbor not in path:
-                    # Check if visiting this neighbor would be redundant in this DLS
-                    if neighbor not in visited_in_dls or visited_in_dls[neighbor] > current_depth + 1:
-                        new_path = path + [neighbor]
-                        stack.append((neighbor, new_path, current_depth + 1))
-
-        return found_new_dest_at_depth
-
     def search(self):
         """
         Performs the full IDDFS by iteratively calling DLS with increasing depth limits.
+        Terminates when all destinations are found or when no new nodes can be explored.
         """
         # Reset overall search state
         self.expanded_count = 0
         self.results = {dest: None for dest in self.destinations}
         self.found_destinations = set()
-
+        
+        # Track all reachable nodes
+        all_visited_nodes = set()
+        prev_visited_count = 0
+        
         # Iterate through depth limits: 0, 1, 2, ...
         for depth_limit in itertools.count():
             # Perform DLS for the current depth limit
-            self.depth_limited_search(depth_limit)
-
+            visited_this_depth = set()
+            self.depth_limited_search(depth_limit, visited_this_depth)
+            
+            # Add newly visited nodes to our total set
+            all_visited_nodes.update(visited_this_depth)
+            
             # Stop if all target destinations have been found
             if len(self.found_destinations) == len(self.destinations):
                 break
+                
+            # If we didn't discover any new nodes at this depth limit,
+            # we've explored the entire reachable graph and can stop
+            if len(all_visited_nodes) == prev_visited_count:
+                break
+                
+            prev_visited_count = len(all_visited_nodes)
 
         return self.results, self.expanded_count
+
+    def depth_limited_search(self, depth_limit, visited_nodes):
+        """
+        Performs a Depth-Limited Search (DLS) up to a specified depth.
+
+        Args:
+            depth_limit: The maximum depth to explore in this iteration.
+            visited_nodes: Set to track all nodes visited in this DLS.
+
+        Returns:
+            bool: True if any new destination was found at this depth, False otherwise.
+        """
+        found_new_dest_at_depth = False
+        # Stack stores: (node, current_depth)
+        stack = [(self.origin, 0)]
+        # Track the path to the current node
+        path = {self.origin: [self.origin]}
+        
+        # Track visited nodes with the depth they were first visited at
+        visited_in_dls = {self.origin: 0}
+        
+        # Add origin to visited nodes set
+        visited_nodes.add(self.origin)
+        
+        while stack:
+            node, current_depth = stack.pop()
+            current_path = path[node]
+            
+            # Check if this is a destination we haven't found yet
+            if node in self.destinations and node not in self.found_destinations:
+                self.results[node] = current_path
+                self.found_destinations.add(node)
+                found_new_dest_at_depth = True
+            
+            # Count this node as expanded
+            self.expanded_count += 1
+            
+            # Stop exploring this path if we've reached the depth limit
+            if current_depth >= depth_limit:
+                continue
+                    
+            # Process neighbors
+            neighbors = self.get_neighbors(node)
+            for neighbor in reversed(neighbors):
+                new_depth = current_depth + 1
+                
+                # Skip if adding this neighbor would create a cycle in the current path
+                if neighbor in current_path:
+                    continue
+                    
+                # Skip if we've already visited this neighbor at a shallower or equal depth
+                if neighbor in visited_in_dls and visited_in_dls[neighbor] <= new_depth:
+                    continue
+                    
+                # Record the depth for this neighbor
+                visited_in_dls[neighbor] = new_depth
+                
+                # Add to visited nodes set
+                visited_nodes.add(neighbor)
+                
+                # Create the path to this neighbor
+                new_path = current_path + [neighbor]
+                path[neighbor] = new_path
+                
+                # Add to stack
+                stack.append((neighbor, new_depth))
+
+        return found_new_dest_at_depth
+
     
     # --- Breadth-First Search Implementation --- (Dwayne D'Souza)
 class BFS(SearchAlgorithm):
@@ -525,7 +555,6 @@ SEARCH_METHODS = {
     "bfs": BFS,
     "ucs": UCS,
     "astar": AStar,
-    # 'bfs': BFS, # Example for adding Breadth-First Search later
 }
 
 
