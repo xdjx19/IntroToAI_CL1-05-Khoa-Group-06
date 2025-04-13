@@ -16,7 +16,9 @@ pip install networkx matplotlib
 
 Run the search algorithm using the following syntax:
 
-python search.py "graph.txt" dfs
+```bash
+python search.py "Original Graph.txt" dfs
+```
 
 Where:
 - The first argument is the path to the graph file
@@ -63,4 +65,4 @@ The program outputs:
 1. The filename and search method
 2. The found destination and number of expanded nodes
 3. The path from origin to destination
-4. The path of the graph visualization png
+4. A visualization of the graph and the found path
