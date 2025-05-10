@@ -17,30 +17,47 @@ class TrafficDataset(Dataset):
         return torch.FloatTensor(self.X[idx]), torch.FloatTensor([self.y[idx]])
 
 def preprocess_data(file_path, sequence_length=24):
-    """Load and preprocess the traffic data"""
+    """Load and preprocess the traffic data from second sheet"""
     try:
         # 1. Load raw data
-        df = pd.read_excel(file_path, sheet_name='Data')
+        df = pd.read_excel(file_path, sheet_name=1)
         
-        # 2. Clean and reshape to time series format
+        # DEBUG: Show columns to verify
+        print("\nColumns found in Excel file:")
+        print(df.columns.tolist())
+        
+        # 2. Identify time columns (they appear as '0:00', '0:15', etc.)
+        time_cols = [col for col in df.columns if isinstance(col, str) and ':' in col]
+        
+        if not time_cols:
+            raise ValueError("No time columns found (expected format like '0:00', '0:15')")
+            
+        # 3. Keep only relevant columns
+        keep_cols = ['SCATS Number', 'Location', 'Date'] + time_cols
+        df = df[keep_cols]
+        
+        # 4. Clean and reshape to time series format
         df.dropna(how='all', inplace=True)
-        value_cols = [col for col in df.columns if col.startswith('V') and col[1:].isdigit()]
+        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
         
-        # Melt into long format (SCATS, DateTime, VehicleCount)
+        # 5. Melt into long format (SCATS, DateTime, VehicleCount)
         df_long = df.melt(
-            id_vars=['SCATS Number', 'Date'],
-            value_vars=value_cols,
-            var_name='Interval',
+            id_vars=['SCATS Number', 'Location', 'Date'],
+            value_vars=time_cols,
+            var_name='Time',
             value_name='VehicleCount'
         )
         
-        # Create proper DateTime column
-        df_long['Interval'] = df_long['Interval'].str.extract(r'(\d+)').astype(int)
-        df_long['DateTime'] = pd.to_datetime(df_long['Date']) + pd.to_timedelta(df_long['Interval'] * 15, unit='min')
+        # 6. Create proper DateTime column
+        # Convert '0:00' format to minutes
+        df_long['Minutes'] = df_long['Time'].apply(
+            lambda x: int(x.split(':')[0])*60 + int(x.split(':')[1])
+        )
+        df_long['DateTime'] = df_long['Date'] + pd.to_timedelta(df_long['Minutes'], unit='m')
         df_long['VehicleCount'] = pd.to_numeric(df_long['VehicleCount'], errors='coerce')
         df_long.dropna(subset=['VehicleCount'], inplace=True)
         
-        # 3. Create sequences for each SCATS site
+        # 7. Create sequences for each SCATS site
         sequences = []
         targets = []
         
@@ -53,7 +70,7 @@ def preprocess_data(file_path, sequence_length=24):
                 sequences.append(values[i:i+sequence_length])
                 targets.append(values[i+sequence_length])
         
-        # 4. Convert to numpy arrays
+        # 8. Convert to numpy arrays
         X = np.array(sequences).reshape(-1, sequence_length, 1)  # (samples, seq_len, features)
         y = np.array(targets)
         
@@ -85,21 +102,22 @@ def get_data_loaders(file_path, batch_size=32, seq_len=24):
 if __name__ == "__main__":
     # Get the absolute path to the data file
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    data_path = os.path.join(script_dir, "..", "Scats_Data_October_2023.xls")
+    data_path = os.path.join(script_dir, "Scats_Data_October_2006.xls")
     
-    print(f"Looking for data file at: {data_path}")
+    print(f"\nLooking for data file at: {data_path}")
+    print(f"File exists: {os.path.exists(data_path)}\n")
     
     if not os.path.exists(data_path):
         print("\nError: Data file not found at the specified path.")
         print("Please ensure:")
-        print("1. The file 'Scats_Data_October_2023.xls' exists")
-        print("2. It's in the parent directory of this script")
-        print("3. Or update the path in the code")
+        print("1. The file 'Scats_Data_October_2006.xls' exists")
+        print("2. It's in the same directory as this script")
+        print("3. The file contains the data in the second sheet")
     else:
         train_loader, test_loader = get_data_loaders(data_path)
         
         if train_loader is not None:
-            # Example model training
+            # Example model
             model = torch.nn.Sequential(
                 torch.nn.LSTM(input_size=1, hidden_size=50, batch_first=True),
                 torch.nn.Linear(50, 1)
