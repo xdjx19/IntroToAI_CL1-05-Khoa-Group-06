@@ -5,45 +5,52 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 
+#traffic dataset class - feeds data into the model in batches
 class TrafficDataset(Dataset):
     def __init__(self, sequences, targets):
         self.X = sequences
         self.y = targets
-    
+
     def __len__(self):
         return len(self.X)
-    
+
     def __getitem__(self, idx):
         return torch.FloatTensor(self.X[idx]), torch.FloatTensor([self.y[idx]])
-
+    
+#preprocessing the data - cleans and prepares the data for the model
 def preprocess_data(file_path, sequence_length=24):
     try:
-        # Load the data (2nd sheet), clean column names
-        df = pd.read_excel(file_path, sheet_name=1)
+        #skip the first row as it's blank. uses the second row as tthe header instead
+        df = pd.read_excel(file_path, sheet_name=1, header=1)
         df.columns = df.columns.map(lambda x: str(x).strip())
 
         print("\nColumns found:")
         print(df.columns.tolist())
 
-        # Identify columns
-        site_col = next((col for col in df.columns if 'SCATS' in col), None)
+        #indentifies the important columns in dataset
+        site_col = next((col for col in df.columns if 'SCATS' in col or 'CD_MELWAY' in col), None)
         location_col = next((col for col in df.columns if 'Location' in col), None)
         date_col = next((col for col in df.columns if 'Date' in col), None)
 
-        if not all([site_col, location_col, date_col]):
-            raise ValueError("Required columns like 'Date' or 'SCATS Number' not found.")
+        if not all([location_col, date_col]):
+            raise ValueError("Required columns like 'Date' or 'Location' not found.")
 
-        # Time columns are of type datetime.time (e.g., 00:00, 00:15, etc.)
-        time_cols = [col for col in df.columns if isinstance(col, pd.Timestamp) or isinstance(col, pd._libs.tslibs.timestamps.Timestamp) or isinstance(col, str) and ':' in col]
+        #the time columns like V00 to V95
+        time_cols = [col for col in df.columns if col.startswith('V') and col[1:].isdigit()]
 
-        # Keep relevant columns
-        df = df[[site_col, location_col, date_col] + time_cols]
-        df = df.rename(columns={site_col: 'SCATS Number', location_col: 'Location', date_col: 'Date'})
+        df = df[[location_col, date_col] + time_cols]
+        df = df.rename(columns={
+            location_col: 'Location',
+            date_col: 'Date',
+        })
+
+        #creates placeholder scats
+        df['SCATS Number'] = df['Location']
 
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df.dropna(subset=['Date'], inplace=True)
 
-        # Melt into long format
+        #melts the dataframe to long format
         df_long = df.melt(
             id_vars=['SCATS Number', 'Location', 'Date'],
             value_vars=time_cols,
@@ -51,32 +58,21 @@ def preprocess_data(file_path, sequence_length=24):
             value_name='VehicleCount'
         )
 
-        # Handle time column (convert to minutes)
-        def time_to_minutes(t):
-            if isinstance(t, str):
-                parts = t.split(':')
-                return int(parts[0]) * 60 + int(parts[1])
-            elif isinstance(t, pd.Timestamp):
-                return t.hour * 60 + t.minute
-            elif hasattr(t, 'hour'):
-                return t.hour * 60 + t.minute
-            else:
-                return np.nan
-
-        df_long['Minutes'] = df_long['Time'].apply(time_to_minutes)
+        #converts the v's (v00 to v95) to minutes
+        df_long['Minutes'] = df_long['Time'].apply(lambda x: int(x[1:]) * 15 if x.startswith('V') else np.nan)
+        df_long.dropna(subset=['Minutes'], inplace=True)
         df_long['DateTime'] = df_long['Date'] + pd.to_timedelta(df_long['Minutes'], unit='m')
         df_long['VehicleCount'] = pd.to_numeric(df_long['VehicleCount'], errors='coerce')
         df_long.dropna(subset=['VehicleCount'], inplace=True)
 
-        # Build sequences
+        #using to build sequences
         sequences, targets = [], []
-
         for scats_id in df_long['SCATS Number'].unique():
             site_data = df_long[df_long['SCATS Number'] == scats_id].sort_values('DateTime')
             values = site_data['VehicleCount'].values
             for i in range(len(values) - sequence_length):
-                sequences.append(values[i:i+sequence_length])
-                targets.append(values[i+sequence_length])
+                sequences.append(values[i:i + sequence_length])
+                targets.append(values[i + sequence_length])
 
         X = np.array(sequences).reshape(-1, sequence_length, 1)
         y = np.array(targets)
@@ -87,6 +83,7 @@ def preprocess_data(file_path, sequence_length=24):
         print(f"Error in preprocessing: {e}")
         return None, None
 
+#retrieves the clean data from preprocess function and splits it 80% for training and 20% for testing
 def get_data_loaders(file_path, batch_size=32, seq_len=24):
     X, y = preprocess_data(file_path, sequence_length=seq_len)
     if X is None or y is None:
@@ -100,6 +97,7 @@ def get_data_loaders(file_path, batch_size=32, seq_len=24):
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     return train_loader, test_loader
 
+#main function and body of code - used to actually train the model using lstm (rnn)
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(script_dir, "Scats_Data_October_2006.xlsx")
@@ -129,3 +127,16 @@ if __name__ == "__main__":
                     loss.backward()
                     optimizer.step()
                 print(f"Epoch {epoch+1}, Loss: {loss.item():.4f}")
+
+#long short term memory (lstm model used) specifically recurrent neural network (rnn)
+
+#scats = site id
+#location = where the traffic data was recorded
+#date = when the traffic data was recorded
+#v00 - v95 = the traffic count from every 15 minutes for 24 hours
+#ignore warning message. only occuring because of had weird formatting like a footer, merged cells, etc.
+
+#model is trained on the traffic data, running through the dataset 5 times in epochs (check output)
+#after running through each round, tells how far model preductions are from the actual traffic count
+
+#make sure 'pip install pandas numpy torch scikit-learn openpyxl' is put in the terminal to make the inputs functional
