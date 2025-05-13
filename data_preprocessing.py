@@ -91,7 +91,7 @@ def get_data_loaders(file_path, batch_size=32, seq_len=24):
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     train_dataset = TrafficDataset(X_train, y_train)
-    test_dataset = TrafficDataset(X_test, y_test)
+    test_dataset = TrafficDataset(X_test, y_test) #save dataset in new csv
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
@@ -139,4 +139,6 @@ if __name__ == "__main__":
 #model is trained on the traffic data, running through the dataset 5 times in epochs (check output)
 #after running through each round, tells how far model preductions are from the actual traffic count
 
-#make sure 'pip install pandas numpy torch scikit-learn openpyxl' is put in the terminal to make the inputs functional
+#make sure 'pip install pandas numpy torch scikit-learn openpyxl' is put in the terminal to make the inputs functiona
+# 
+# #l
