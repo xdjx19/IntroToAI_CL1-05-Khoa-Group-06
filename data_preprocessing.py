@@ -1,9 +1,14 @@
 import os
+import warnings
 import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
+
+#suppress specific harmless warning from pandas about header/footer parsing
+warnings.filterwarnings("ignore", message="Cannot parse header or footer*")
+
 
 #traffic dataset class - feeds data into the model in batches
 class TrafficDataset(Dataset):
@@ -16,18 +21,21 @@ class TrafficDataset(Dataset):
 
     def __getitem__(self, idx):
         return torch.FloatTensor(self.X[idx]), torch.FloatTensor([self.y[idx]])
-    
+
 #preprocessing the data - cleans and prepares the data for the model
 def preprocess_data(file_path, sequence_length=24):
     try:
-        #skip the first row as it's blank. uses the second row as tthe header instead
+        #skip the first row as it's blank. uses the second row as the header instead
         df = pd.read_excel(file_path, sheet_name=1, header=1)
         df.columns = df.columns.map(lambda x: str(x).strip())
 
-        print("\nColumns found:")
-        print(df.columns.tolist())
+        #show only relevant user-facing columns in terminal
+        excluded = {'SCATS Number', 'Location', 'CD_MELWAY', 'NB_LATITUDE', 'NB_LONGITUDE',
+                    'HF VicRoads Internal', 'VR Internal Stat', 'VR Internal Loc', 'NB_TYPE_SURVEY', 'Date'}
+        print("\nColumns found (excluding internal/system columns):")
+        print([col for col in df.columns if col not in excluded])
 
-        #indentifies the important columns in dataset
+        #identifies the important columns in dataset
         site_col = next((col for col in df.columns if 'SCATS' in col or 'CD_MELWAY' in col), None)
         location_col = next((col for col in df.columns if 'Location' in col), None)
         date_col = next((col for col in df.columns if 'Date' in col), None)
@@ -35,7 +43,7 @@ def preprocess_data(file_path, sequence_length=24):
         if not all([location_col, date_col]):
             raise ValueError("Required columns like 'Date' or 'Location' not found.")
 
-        #the time columns like V00 to V95
+        #the time columns from V00 to V95
         time_cols = [col for col in df.columns if col.startswith('V') and col[1:].isdigit()]
 
         df = df[[location_col, date_col] + time_cols]
@@ -44,7 +52,7 @@ def preprocess_data(file_path, sequence_length=24):
             date_col: 'Date',
         })
 
-        #creates placeholder scats
+        #creates placeholder SCATS number
         df['SCATS Number'] = df['Location']
 
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
@@ -65,7 +73,12 @@ def preprocess_data(file_path, sequence_length=24):
         df_long['VehicleCount'] = pd.to_numeric(df_long['VehicleCount'], errors='coerce')
         df_long.dropna(subset=['VehicleCount'], inplace=True)
 
-        #using to build sequences
+        #save long-format processed data to Excel
+        output_excel_path = os.path.join(os.path.dirname(file_path), "Updated_PrePro_Data.xlsx")
+        df_long.to_excel(output_excel_path, index=False)
+        print(f"\nPreprocessed long-format data saved to: {output_excel_path}")
+
+        #build sequences for training
         sequences, targets = [], []
         for scats_id in df_long['SCATS Number'].unique():
             site_data = df_long[df_long['SCATS Number'] == scats_id].sort_values('DateTime')
@@ -91,13 +104,13 @@ def get_data_loaders(file_path, batch_size=32, seq_len=24):
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     train_dataset = TrafficDataset(X_train, y_train)
-    test_dataset = TrafficDataset(X_test, y_test) #save dataset in new csv
+    test_dataset = TrafficDataset(X_test, y_test)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     return train_loader, test_loader
 
-#main function and body of code - used to actually train the model using lstm (rnn)
+#main function - trains the model using LSTM (RNN)
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(script_dir, "Scats_Data_October_2006.xlsx")
@@ -139,6 +152,4 @@ if __name__ == "__main__":
 #model is trained on the traffic data, running through the dataset 5 times in epochs (check output)
 #after running through each round, tells how far model preductions are from the actual traffic count
 
-#make sure 'pip install pandas numpy torch scikit-learn openpyxl' is put in the terminal to make the inputs functiona
-# 
-# #l
+#make sure 'pip install pandas numpy torch scikit-learn openpyxl' is put in the terminal to make the inputs functional
