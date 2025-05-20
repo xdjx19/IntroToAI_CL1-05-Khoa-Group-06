@@ -166,10 +166,6 @@ def evaluate_lstm(model: nn.Module,
 
 # ========== Example Usage ==========
 if __name__ == "__main__":
-    # Example usage with all three models
-    from models import SparseAutoencoder, GRUTrafficModel, LSTMTrafficModel
-    from data_preprocessing import get_data_loaders
-    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
@@ -177,7 +173,7 @@ if __name__ == "__main__":
     train_loader, test_loader = get_data_loaders("Scats_Data_October_2006.xlsx")
     
     if train_loader and test_loader:
-        # Initialize models
+        # Initialize models directly (no import needed)
         sae = SparseAutoencoder(input_dim=64).to(device)
         gru = GRUTrafficModel().to(device)
         lstm = LSTMTrafficModel().to(device)
