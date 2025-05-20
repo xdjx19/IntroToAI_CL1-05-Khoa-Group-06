@@ -153,3 +153,5 @@ if __name__ == "__main__":
 #after running through each round, tells how far model preductions are from the actual traffic count
 
 #make sure 'pip install pandas numpy torch scikit-learn openpyxl' is put in the terminal to make the inputs functional
+
+#create a new training file for loading the data and training purposes

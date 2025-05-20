@@ -425,3 +425,7 @@ if __name__ == "__main__":
 
 # if __name__ == "__main__":
 #     train_and_save_sae()
+
+
+
+#streamlit or tinkter for gui view
