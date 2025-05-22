@@ -59,6 +59,9 @@ def preprocess_data(file_path, sequence_length=24):
         df_long.dropna(subset=['Minutes'], inplace=True)
         df_long['DateTime'] = df_long['Date'] + pd.to_timedelta(df_long['Minutes'], unit='m')
         df_long['VehicleCount'] = pd.to_numeric(df_long['VehicleCount'], errors='coerce')
+        max_val = df_long['VehicleCount'].max()
+        min_val = df_long['VehicleCount'].min()
+        df_long['VehicleCount'] = (df_long['VehicleCount'] - min_val) / (max_val - min_val)
         df_long.dropna(subset=['VehicleCount'], inplace=True)
 
         output_excel_path = os.path.join(os.path.dirname(file_path), "Updated_PrePro_Data.xlsx")
