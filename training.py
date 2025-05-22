@@ -4,6 +4,8 @@ import torch.nn as nn
 from sklearn.metrics import mean_squared_error
 import numpy as np
 from data_preprocessing import get_data_loaders
+import matplotlib.pyplot as plt
+
 
 # Enhanced and smaller LSTM Model
 class LSTMModel(nn.Module):
@@ -30,7 +32,7 @@ class LSTMModel(nn.Module):
         nn.init.xavier_uniform_(self.fc.weight)
         nn.init.zeros_(self.fc.bias)
 
-# Train function
+# Train function with graph
 def train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device='cpu'):
     model = model.to(device)
     criterion = nn.MSELoss()
@@ -65,6 +67,19 @@ def train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device='cp
         test_rmse = np.sqrt(mean_squared_error(test_actuals, test_preds))
         print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.4f} - Test RMSE: {test_rmse:.4f}")
 
+    # Plot graph of predicted vs actual (first 100 samples)
+    plt.figure(figsize=(10, 4))
+    plt.plot(test_actuals[:100], label='Actual', linewidth=2)
+    plt.plot(test_preds[:100], label='Predicted', linewidth=2)
+    plt.title("Predicted vs Actual Vehicle Count (Normalized)")
+    plt.xlabel("Sample Index")
+    plt.ylabel("Normalized Vehicle Count")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+# Main entry point
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(script_dir, "Scats_Data_October_2006.xlsx")
