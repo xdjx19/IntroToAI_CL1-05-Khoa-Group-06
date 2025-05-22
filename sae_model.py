@@ -71,7 +71,8 @@ def train_sae_model(model, train_loader, test_loader, criterion, optimizer,
         epoch_recon_loss = 0
         epoch_sparsity_loss = 0
 
-        for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
+        for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}",
+                  bar_format="{desc}: {percentage:3.0f}% | {elapsed} elapsed"):
             inputs = batch[0].to(device, non_blocking=True)
 
             outputs = model(inputs)
