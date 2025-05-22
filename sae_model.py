@@ -207,8 +207,8 @@ if __name__ == "__main__":
     train_data = data[:800]
     test_data = data[800:]
 
-    train_loader = DataLoader(TensorDataset(train_data), batch_size=32, shuffle=True, pin_memory=True)
-    test_loader = DataLoader(TensorDataset(test_data), batch_size=32, shuffle=False, pin_memory=True)
+    train_loader = DataLoader(TensorDataset(train_data), batch_size=32, shuffle=True)
+    test_loader = DataLoader(TensorDataset(test_data), batch_size=32, shuffle=False)
 
     sae_model = SparseAutoencoder(
         input_dim=64,
