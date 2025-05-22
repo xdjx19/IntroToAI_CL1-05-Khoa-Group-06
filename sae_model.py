@@ -1,422 +1,237 @@
-import streamlit as st
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
 from collections import defaultdict
-from sae_model import SparseAutoencoder, train_sae_model, evaluate_sae_model, plot_sae_results, visualize_encodings
+from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 
-# --- Streamlit Page Config ---
-st.set_page_config(page_title="Sparse Autoencoder Trainer", layout="wide")
+class SparseAutoencoder(nn.Module):
+    def __init__(self, input_dim=64, encoding_dim=32, hidden_dims=[128], 
+                 activation='relu', sparsity_weight=0.05, sparsity_target=0.1):
+        super(SparseAutoencoder, self).__init__()
+        self.input_dim = input_dim
+        self.encoding_dim = encoding_dim
+        self.sparsity_weight = sparsity_weight
+        self.sparsity_target = sparsity_target
 
-st.title("Sparse Autoencoder Training & Visualization")
+        activations = {
+            'relu': nn.ReLU,
+            'sigmoid': nn.Sigmoid,
+            'tanh': nn.Tanh
+        }
+        self.activation_cls = activations.get(activation, nn.ReLU)
+        self.activation = self.activation_cls()
 
-# --- Sidebar Config ---
-st.sidebar.header("Model Parameters")
-input_dim = st.sidebar.number_input("Input Dimension", value=64)
-encoding_dim = st.sidebar.slider("Encoding Dimension", min_value=2, max_value=64, value=16)
-hidden_dims = st.sidebar.text_input("Hidden Layer Sizes (comma-separated)", value="32")
-activation = st.sidebar.selectbox("Activation Function", ['relu', 'sigmoid', 'tanh'])
-sparsity_weight = st.sidebar.slider("Sparsity Weight", 0.0, 1.0, 0.1)
-sparsity_target = st.sidebar.slider("Sparsity Target", 0.01, 0.9, 0.05)
+        # Build encoder and decoder
+        self.encoder = self.build_mlp([input_dim] + hidden_dims + [encoding_dim], self.activation_cls)
+        self.decoder = self.build_mlp([encoding_dim] + list(reversed(hidden_dims)) + [input_dim], self.activation_cls)
 
-epochs = st.sidebar.slider("Training Epochs", 1, 100, 20)
-batch_size = st.sidebar.slider("Batch Size", 8, 128, 32)
+        self._register_hooks()
 
-use_synthetic = st.sidebar.checkbox("Use Synthetic Data", value=True)
+    def build_mlp(self, layers, activation):
+        modules = []
+        for i in range(len(layers) - 1):
+            modules.append(nn.Linear(layers[i], layers[i + 1]))
+            if i < len(layers) - 2:
+                modules.append(activation())
+        return nn.Sequential(*modules)
 
-# --- Load or Generate Data ---
-st.subheader("Data Preview")
+    def _register_hooks(self):
+        def hook(module, input, output):
+            self.activations = output.mean(dim=0)
+        self.encoder[-1].register_forward_hook(hook)
 
-if use_synthetic:
+    def forward(self, x):
+        if len(x.shape) > 2:
+            x = x.view(x.size(0), -1)
+        encoding = self.encoder(x)
+        reconstruction = self.decoder(encoding)
+        return reconstruction
+
+    def get_sparsity_loss(self):
+        if not hasattr(self, 'activations'):
+            return torch.tensor(0.0, device=next(self.parameters()).device)
+        sparsity = torch.clamp(self.activations, 1e-6, 1 - 1e-6)
+        target = torch.tensor(self.sparsity_target, device=sparsity.device)
+        kl_div = target * torch.log(target / sparsity) + \
+                 (1 - target) * torch.log((1 - target) / (1 - sparsity))
+        return kl_div.mean()
+
+def train_sae_model(model, train_loader, test_loader, criterion, optimizer, 
+                   num_epochs=10, device='cpu', verbose=True):
+    model.to(device)
+    history = defaultdict(list)
+
+    for epoch in range(num_epochs):
+        model.train()
+        epoch_loss = 0
+        epoch_recon_loss = 0
+        epoch_sparsity_loss = 0
+
+        for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
+            inputs = batch[0].to(device, non_blocking=True)
+
+            outputs = model(inputs)
+            recon_loss = criterion(outputs, inputs)
+            sparsity_loss = model.get_sparsity_loss()
+            total_loss = recon_loss + model.sparsity_weight * sparsity_loss
+
+            optimizer.zero_grad()
+            total_loss.backward()
+            optimizer.step()
+
+            epoch_loss += total_loss.item()
+            epoch_recon_loss += recon_loss.item()
+            epoch_sparsity_loss += sparsity_loss.item()
+
+        avg_loss = epoch_loss / len(train_loader)
+        avg_recon = epoch_recon_loss / len(train_loader)
+        avg_sparsity = epoch_sparsity_loss / len(train_loader)
+
+        history['train_loss'].append(avg_loss)
+        history['train_recon'].append(avg_recon)
+        history['train_sparsity'].append(avg_sparsity)
+
+        test_metrics = evaluate_sae_model(model, test_loader, criterion, device)
+        for key, val in test_metrics.items():
+            history[f'test_{key}'].append(val)
+
+        if verbose:
+            print(f"Epoch [{epoch+1}/{num_epochs}], "
+                  f"Train Loss: {avg_loss:.4f} (Recon: {avg_recon:.4f}, Sparsity: {avg_sparsity:.4f}), "
+                  f"Test Loss: {test_metrics['loss']:.4f}")
+
+    return history
+
+def evaluate_sae_model(model, test_loader, criterion, device='cpu'):
+    model.eval()
+    metrics = defaultdict(float)
+    all_outputs = []
+    all_inputs = []
+
+    with torch.no_grad():
+        for batch in test_loader:
+            inputs = batch[0].to(device, non_blocking=True)
+            outputs = model(inputs)
+
+            recon_loss = criterion(outputs, inputs)
+            sparsity_loss = model.get_sparsity_loss()
+            total_loss = recon_loss + model.sparsity_weight * sparsity_loss
+
+            metrics['loss'] += total_loss.item()
+            metrics['recon'] += recon_loss.item()
+            metrics['sparsity'] += sparsity_loss.item()
+
+            all_outputs.append(outputs.cpu())
+            all_inputs.append(inputs.cpu())
+
+    for key in metrics:
+        metrics[key] /= len(test_loader)
+
+    all_outputs = torch.cat(all_outputs).numpy()
+    all_inputs = torch.cat(all_inputs).numpy()
+    metrics['mse'] = mean_squared_error(all_inputs, all_outputs)
+
+    return metrics
+
+def plot_sae_results(history, sample_inputs=None, sample_reconstructions=None):
+    plt.figure(figsize=(15, 5))
+
+    plt.subplot(1, 3, 1)
+    plt.plot(history['train_loss'], label='Train Total Loss')
+    plt.plot(history['train_recon'], label='Train Recon Loss')
+    plt.plot(history['test_loss'], label='Test Total Loss')
+    plt.plot(history['test_recon'], label='Test Recon Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training History')
+    plt.legend()
+
+    plt.subplot(1, 3, 2)
+    plt.plot(history['train_sparsity'], label='Train Sparsity')
+    plt.plot(history['test_sparsity'], label='Test Sparsity')
+    plt.xlabel('Epoch')
+    plt.ylabel('Sparsity Loss')
+    plt.title('Sparsity Training')
+    plt.legend()
+
+    if sample_inputs is not None and sample_reconstructions is not None:
+        plt.subplot(1, 3, 3)
+        plt.scatter(sample_inputs.flatten(), sample_reconstructions.flatten(), alpha=0.3)
+        plt.plot([sample_inputs.min(), sample_inputs.max()], 
+                 [sample_inputs.min(), sample_inputs.max()], 'r--')
+        plt.xlabel('Original Values')
+        plt.ylabel('Reconstructed Values')
+        plt.title('Reconstruction Quality')
+
+    plt.tight_layout()
+    plt.show()
+
+def visualize_encodings(model, data_loader, device='cpu', max_samples=1000):
+    model.eval()
+    encodings = []
+    labels = []
+
+    with torch.no_grad():
+        for batch in data_loader:
+            inputs = batch[0].to(device, non_blocking=True)
+
+            x = inputs
+            for i, layer in enumerate(model.encoder):
+                x = layer(x)
+                if i < len(model.encoder) - 1:
+                    x = model.activation(x)
+
+            encodings.append(x.cpu().numpy())
+            if len(encodings) * x.shape[0] >= max_samples:
+                break
+
+    encodings = np.concatenate(encodings)[:max_samples]
+
+    plt.figure(figsize=(10, 6))
+    plt.scatter(encodings[:, 0], encodings[:, 1], alpha=0.6)
+    plt.title('2D Visualization of Encodings')
+    plt.xlabel('Encoding Dimension 1')
+    plt.ylabel('Encoding Dimension 2')
+    plt.show()
+
+if __name__ == "__main__":
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+
     torch.manual_seed(42)
-    data = torch.randn(1000, input_dim)
-else:
-    uploaded_file = st.file_uploader("Upload a .npy or .pt file", type=["npy", "pt"])
-    if uploaded_file:
-        if uploaded_file.name.endswith('.npy'):
-            data = torch.tensor(np.load(uploaded_file)).float()
-        else:
-            data = torch.load(uploaded_file).float()
-    else:
-        st.warning("Upload a dataset or enable synthetic data to continue.")
-        st.stop()
+    data = torch.randn(1000, 64)
+    train_data = data[:800]
+    test_data = data[800:]
 
-st.write("Data shape:", data.shape)
+    train_loader = DataLoader(TensorDataset(train_data), batch_size=32, shuffle=True, pin_memory=True)
+    test_loader = DataLoader(TensorDataset(test_data), batch_size=32, shuffle=False, pin_memory=True)
 
-# --- Prepare Data ---
-train_data = data[: int(0.8 * len(data))]
-test_data = data[int(0.8 * len(data)):]
-train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+    sae_model = SparseAutoencoder(
+        input_dim=64,
+        encoding_dim=16,
+        hidden_dims=[32],
+        activation='relu',
+        sparsity_weight=0.1,
+        sparsity_target=0.05
+    )
 
-# --- Initialize Model ---
-model = SparseAutoencoder(
-    input_dim=input_dim,
-    encoding_dim=encoding_dim,
-    hidden_dims=[int(dim) for dim in hidden_dims.split(',')],
-    activation=activation,
-    sparsity_weight=sparsity_weight,
-    sparsity_target=sparsity_target
-)
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(sae_model.parameters(), lr=0.001)
+    epochs = 20
 
-criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print("\nTraining Sparse Autoencoder...")
+    history = train_sae_model(sae_model, train_loader, test_loader, criterion, optimizer, epochs, device)
 
-# --- Train Model ---
-if st.button("Train Model"):
-    with st.spinner("Training..."):
-        history = train_sae_model(model, train_loader, test_loader, criterion, optimizer, epochs, device)
+    sample_inputs = test_data[:100].to(device)
+    with torch.no_grad():
+        sample_reconstructions = sae_model(sample_inputs).cpu().numpy()
 
-    st.success("Training Complete!")
-    
-    # Plot Results
-    st.subheader("Training History & Reconstruction Quality")
-    fig, ax = plt.subplots(figsize=(15, 5))
-    plot_sae_results(history, test_data[:100].numpy(), model(test_data[:100].to(device)).cpu().numpy())
-    st.pyplot(fig)
-
-    # Encoding visualization
-    st.subheader("Encoding Space (First 2 Dimensions)")
-    fig2, ax2 = plt.subplots()
-    visualize_encodings(model, test_loader, device)
-    st.pyplot(fig2)
-
-
-
-
-
-
-
-
-
-#second 
-
-
-
-
-# import torch
-# import torch.nn as nn
-# import torch.nn.functional as F
-# import numpy as np
-# from sklearn.metrics import mean_squared_error
-# import matplotlib.pyplot as plt
-# from collections import defaultdict
-
-# class SparseAutoencoder(nn.Module):
-#     """
-#     Sparse Autoencoder (SAE) model with L1 regularization for sparsity
-#     Args:
-#         input_dim: Dimension of input features
-#         encoding_dim: Dimension of the bottleneck layer (encoding)
-#         hidden_dims: List of dimensions for hidden layers (decoder/encoder)
-#         activation: Activation function to use ('relu', 'sigmoid', 'tanh')
-#         sparsity_weight: Weight for the sparsity regularization term
-#         sparsity_target: Desired average activation of hidden units
-#     """
-#     def __init__(self, input_dim=64, encoding_dim=32, hidden_dims=[128], 
-#                  activation='relu', sparsity_weight=0.05, sparsity_target=0.1):
-#         super(SparseAutoencoder, self).__init__()
-#         self.input_dim = input_dim
-#         self.encoding_dim = encoding_dim
-#         self.sparsity_weight = sparsity_weight
-#         self.sparsity_target = sparsity_target
-        
-#         # Determine activation function
-#         self.activation = {
-#             'relu': F.relu,
-#             'sigmoid': torch.sigmoid,
-#             'tanh': torch.tanh
-#         }.get(activation, F.relu)
-        
-#         # Encoder layers
-#         encoder_layers = []
-#         prev_dim = input_dim
-#         for dim in hidden_dims:
-#             encoder_layers.append(nn.Linear(prev_dim, dim))
-#             prev_dim = dim
-#         encoder_layers.append(nn.Linear(prev_dim, encoding_dim))
-#         self.encoder = nn.ModuleList(encoder_layers)
-        
-#         # Decoder layers
-#         decoder_layers = []
-#         prev_dim = encoding_dim
-#         for dim in reversed(hidden_dims):
-#             decoder_layers.append(nn.Linear(prev_dim, dim))
-#             prev_dim = dim
-#         decoder_layers.append(nn.Linear(prev_dim, input_dim))
-#         self.decoder = nn.ModuleList(decoder_layers)
-        
-#     def forward(self, x):
-#         # Flatten input if needed
-#         if len(x.shape) > 2:
-#             x = x.view(x.size(0), -1)
-            
-#         # Encoding
-#         h = x
-#         for i, layer in enumerate(self.encoder):
-#             h = layer(h)
-#             if i < len(self.encoder) - 1:  # No activation after last encoder layer
-#                 h = self.activation(h)
-#         encoding = h
-        
-#         # Track activations for sparsity regularization
-#         if self.training:
-#             self.activations = encoding.detach().mean(dim=0)
-        
-#         # Decoding
-#         for i, layer in enumerate(self.decoder):
-#             encoding = layer(encoding)
-#             if i < len(self.decoder) - 1:  # No activation after last decoder layer
-#                 encoding = self.activation(encoding)
-        
-#         return encoding
-    
-#     def get_sparsity_loss(self):
-#         """Calculate KL divergence sparsity loss"""
-#         if not hasattr(self, 'activations'):
-#             return torch.tensor(0.0)
-            
-#         # KL divergence between target sparsity and actual activations
-#         sparsity = self.activations.mean()
-#         kl_div = self.sparsity_target * torch.log(self.sparsity_target / sparsity) + \
-#                  (1 - self.sparsity_target) * torch.log((1 - self.sparsity_target) / (1 - sparsity))
-#         return kl_div
-
-# def train_sae_model(model, train_loader, test_loader, criterion, optimizer, 
-#                    num_epochs=10, device='cpu', verbose=True):
-#     """
-#     Train the Sparse Autoencoder model
-#     Returns:
-#         Dictionary containing training history and results
-#     """
-#     model.to(device)
-#     history = defaultdict(list)
-    
-#     for epoch in range(num_epochs):
-#         model.train()
-#         epoch_loss = 0
-#         epoch_recon_loss = 0
-#         epoch_sparsity_loss = 0
-        
-#         for batch in train_loader:
-#             if isinstance(batch, (list, tuple)):
-#                 batch = batch[0]  # Assume first element is input data
-                
-#             batch = batch.to(device)
-            
-#             # Forward pass
-#             outputs = model(batch)
-            
-#             # Calculate losses
-#             recon_loss = criterion(outputs, batch)
-#             sparsity_loss = model.get_sparsity_loss()
-#             total_loss = recon_loss + model.sparsity_weight * sparsity_loss
-            
-#             # Backward and optimize
-#             optimizer.zero_grad()
-#             total_loss.backward()
-#             optimizer.step()
-            
-#             # Accumulate losses
-#             epoch_loss += total_loss.item()
-#             epoch_recon_loss += recon_loss.item()
-#             epoch_sparsity_loss += sparsity_loss.item()
-        
-#         # Average losses for the epoch
-#         avg_loss = epoch_loss / len(train_loader)
-#         avg_recon = epoch_recon_loss / len(train_loader)
-#         avg_sparsity = epoch_sparsity_loss / len(train_loader)
-        
-#         history['train_loss'].append(avg_loss)
-#         history['train_recon'].append(avg_recon)
-#         history['train_sparsity'].append(avg_sparsity)
-        
-#         # Evaluate on test set
-#         test_metrics = evaluate_sae_model(model, test_loader, criterion, device)
-#         for key, val in test_metrics.items():
-#             history[f'test_{key}'].append(val)
-        
-#         if verbose:
-#             print(f'Epoch [{epoch+1}/{num_epochs}], '
-#                   f'Train Loss: {avg_loss:.4f} (Recon: {avg_recon:.4f}, Sparsity: {avg_sparsity:.4f}), '
-#                   f'Test Loss: {test_metrics["loss"]:.4f}')
-
-#     return history
-
-# def evaluate_sae_model(model, test_loader, criterion, device='cpu'):
-#     """Evaluate SAE model on test set and return metrics"""
-#     model.eval()
-#     metrics = defaultdict(float)
-#     all_outputs = []
-#     all_inputs = []
-    
-#     with torch.no_grad():
-#         for batch in test_loader:
-#             if isinstance(batch, (list, tuple)):
-#                 batch = batch[0]  # Assume first element is input data
-                
-#             batch = batch.to(device)
-#             outputs = model(batch)
-            
-#             # Calculate losses
-#             recon_loss = criterion(outputs, batch)
-#             sparsity_loss = model.get_sparsity_loss()
-#             total_loss = recon_loss + model.sparsity_weight * sparsity_loss
-            
-#             # Accumulate metrics
-#             metrics['loss'] += total_loss.item()
-#             metrics['recon'] += recon_loss.item()
-#             metrics['sparsity'] += sparsity_loss.item()
-            
-#             # Store for reconstruction metrics
-#             all_outputs.append(outputs.cpu())
-#             all_inputs.append(batch.cpu())
-    
-#     # Average metrics
-#     for key in metrics:
-#         metrics[key] /= len(test_loader)
-    
-#     # Calculate reconstruction metrics
-#     all_outputs = torch.cat(all_outputs).numpy()
-#     all_inputs = torch.cat(all_inputs).numpy()
-#     metrics['mse'] = mean_squared_error(all_inputs, all_outputs)
-    
-#     return metrics
-
-# def plot_sae_results(history, sample_inputs=None, sample_reconstructions=None):
-#     """Plot SAE training results and sample reconstructions"""
-#     plt.figure(figsize=(15, 5))
-    
-#     # Plot training history
-#     plt.subplot(1, 3, 1)
-#     plt.plot(history['train_loss'], label='Train Total Loss')
-#     plt.plot(history['train_recon'], label='Train Recon Loss')
-#     plt.plot(history['test_loss'], label='Test Total Loss')
-#     plt.plot(history['test_recon'], label='Test Recon Loss')
-#     plt.xlabel('Epoch')
-#     plt.ylabel('Loss')
-#     plt.title('Training History')
-#     plt.legend()
-    
-#     # Plot sparsity
-#     plt.subplot(1, 3, 2)
-#     plt.plot(history['train_sparsity'], label='Train Sparsity')
-#     plt.plot(history['test_sparsity'], label='Test Sparsity')
-#     plt.xlabel('Epoch')
-#     plt.ylabel('Sparsity Loss')
-#     plt.title('Sparsity Training')
-#     plt.legend()
-    
-#     # Plot sample reconstructions if provided
-#     if sample_inputs is not None and sample_reconstructions is not None:
-#         plt.subplot(1, 3, 3)
-#         plt.scatter(sample_inputs.flatten(), sample_reconstructions.flatten(), alpha=0.3)
-#         plt.plot([sample_inputs.min(), sample_inputs.max()], 
-#                  [sample_inputs.min(), sample_inputs.max()], 'r--')
-#         plt.xlabel('Original Values')
-#         plt.ylabel('Reconstructed Values')
-#         plt.title('Reconstruction Quality')
-    
-#     plt.tight_layout()
-#     plt.show()
-
-# def visualize_encodings(model, data_loader, device='cpu', max_samples=1000):
-#     """Visualize the encoded representations of the data"""
-#     model.eval()
-#     encodings = []
-#     labels = []  # If available
-    
-#     with torch.no_grad():
-#         for batch in data_loader:
-#             if isinstance(batch, (list, tuple)):
-#                 inputs = batch[0]
-#                 if len(batch) > 1:
-#                     labels.extend(batch[1].cpu().numpy())
-#             else:
-#                 inputs = batch
-                
-#             inputs = inputs.to(device)
-            
-#             # Get encodings
-#             x = inputs
-#             for i, layer in enumerate(model.encoder):
-#                 x = layer(x)
-#                 if i < len(model.encoder) - 1:
-#                     x = model.activation(x)
-#             encodings.append(x.cpu().numpy())
-            
-#             if len(encodings) * encodings[0].shape[0] >= max_samples:
-#                 break
-    
-#     encodings = np.concatenate(encodings)[:max_samples]
-    
-#     plt.figure(figsize=(10, 6))
-#     if len(labels) >= len(encodings):
-#         plt.scatter(encodings[:, 0], encodings[:, 1], c=labels[:len(encodings)], alpha=0.6)
-#         plt.colorbar()
-#     else:
-#         plt.scatter(encodings[:, 0], encodings[:, 1], alpha=0.6)
-#     plt.title('2D Visualization of Encodings')
-#     plt.xlabel('Encoding Dimension 1')
-#     plt.ylabel('Encoding Dimension 2')
-#     plt.show()
-
-# if __name__ == "__main__":
-#     # Example usage with synthetic data
-#     from torch.utils.data import DataLoader, TensorDataset
-    
-#     # Set device
-#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#     print(f"Using device: {device}")
-    
-#     # Create synthetic data
-#     torch.manual_seed(42)
-#     data = torch.randn(1000, 64)  # 1000 samples with 64 features
-#     train_data = data[:800]
-#     test_data = data[800:]
-    
-#     # Create data loaders
-#     batch_size = 32
-#     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-#     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
-    
-#     # Initialize SAE model
-#     sae_model = SparseAutoencoder(
-#         input_dim=64,
-#         encoding_dim=16,
-#         hidden_dims=[32],
-#         activation='relu',
-#         sparsity_weight=0.1,
-#         sparsity_target=0.05
-#     )
-    
-#     # Training parameters
-#     criterion = nn.MSELoss()
-#     optimizer = torch.optim.Adam(sae_model.parameters(), lr=0.001)
-#     epochs = 20
-    
-#     # Train and evaluate SAE
-#     print("\nTraining Sparse Autoencoder...")
-#     history = train_sae_model(
-#         sae_model, train_loader, test_loader, criterion, optimizer, epochs, device
-#     )
-    
-#     # Get some sample reconstructions
-#     sample_inputs = test_data[:100].to(device)
-#     with torch.no_grad():
-#         sample_reconstructions = sae_model(sample_inputs).cpu().numpy()
-    
-#     # Plot results
-#     plot_sae_results(history, test_data[:100].numpy(), sample_reconstructions)
-    
-#     # Visualize encodings
-#     visualize_encodings(sae_model, test_loader, device)
-
+    plot_sae_results(history, test_data[:100].numpy(), sample_reconstructions)
+    visualize_encodings(sae_model, test_loader, device)
 
 
 
