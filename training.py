@@ -1,10 +1,12 @@
 import os
 import torch
 import torch.nn as nn
-from sklearn.metrics import mean_squared_error
 import numpy as np
-from data_preprocessing import get_data_loaders
 import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error
+from data_preprocessing import get_data_loaders
+import tkinter as tk
+from tkinter import messagebox
 
 
 # Enhanced and smaller LSTM Model
@@ -20,7 +22,7 @@ class LSTMModel(nn.Module):
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :])  # take last time step
+        out = self.fc(out[:, -1, :])
         return out
 
     def _init_weights(self):
@@ -32,15 +34,19 @@ class LSTMModel(nn.Module):
         nn.init.xavier_uniform_(self.fc.weight)
         nn.init.zeros_(self.fc.bias)
 
-# Train function with graph
+
+# Train function with plotting
 def train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device='cpu'):
     model = model.to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
+    train_losses = []
+    test_rmses = []
+
     for epoch in range(epochs):
         model.train()
-        train_losses = []
+        batch_losses = []
 
         for batch_x, batch_y in train_loader:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
@@ -51,9 +57,10 @@ def train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device='cp
             loss.backward()
             optimizer.step()
 
-            train_losses.append(loss.item())
+            batch_losses.append(loss.item())
 
-        # Evaluation
+        train_loss = np.mean(batch_losses)
+
         model.eval()
         test_preds, test_actuals = [], []
         with torch.no_grad():
@@ -63,34 +70,60 @@ def train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device='cp
                 test_preds.extend(outputs.cpu().numpy())
                 test_actuals.extend(batch_y.cpu().numpy())
 
-        train_loss = np.mean(train_losses)
         test_rmse = np.sqrt(mean_squared_error(test_actuals, test_preds))
+        train_losses.append(train_loss)
+        test_rmses.append(test_rmse)
+
         print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.4f} - Test RMSE: {test_rmse:.4f}")
 
-    # Plot graph of predicted vs actual (first 100 samples)
-    plt.figure(figsize=(10, 4))
-    plt.plot(test_actuals[:100], label='Actual', linewidth=2)
-    plt.plot(test_preds[:100], label='Predicted', linewidth=2)
-    plt.title("Predicted vs Actual Vehicle Count (Normalized)")
-    plt.xlabel("Sample Index")
-    plt.ylabel("Normalized Vehicle Count")
+    # Show graph
+    plt.figure(figsize=(8, 5))
+    plt.plot(range(1, epochs + 1), train_losses, label='Train Loss')
+    plt.plot(range(1, epochs + 1), test_rmses, label='Test RMSE')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss / RMSE')
+    plt.title('Training Progress')
     plt.legend()
-    plt.grid(True)
     plt.tight_layout()
     plt.show()
 
-# Main entry point
-if __name__ == "__main__":
+
+# GUI function with default file
+def start_training():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(script_dir, "Scats_Data_October_2006.xlsx")
 
     if not os.path.exists(data_path):
-        print("Error: Data file not found.")
-    else:
-        train_loader, test_loader = get_data_loaders(data_path, batch_size=64, seq_len=24)
+        messagebox.showerror("Error", "Default data file not found: Scats_Data_October_2006.xlsx")
+        return
 
-        if train_loader is not None:
-            model = LSTMModel()
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            print(f"Training on: {device}")
-            train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device=device)
+    try:
+        train_loader, test_loader = get_data_loaders(data_path, batch_size=64, seq_len=24)
+        if train_loader is None:
+            messagebox.showerror("Error", "Data loading failed.")
+            return
+
+        model = LSTMModel()
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"Training on: {device}")
+        train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device=device)
+
+    except PermissionError:
+        messagebox.showerror("Permission Error", "The file is open in another program (e.g., Excel). Please close it and try again.")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+
+# Minimal GUI
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.title("Traffic Training")
+    root.geometry("300x150")
+
+    label = tk.Label(root, text="Train on default data file", font=("Arial", 12))
+    label.pack(pady=10)
+
+    train_button = tk.Button(root, text="Start Training", command=start_training)
+    train_button.pack(pady=10)
+
+    root.mainloop()
