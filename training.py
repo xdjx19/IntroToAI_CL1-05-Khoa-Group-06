@@ -1,15 +1,14 @@
 import os
 import torch
 import torch.nn as nn
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import mean_squared_error
-from data_preprocessing import get_data_loaders
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
+from sklearn.metrics import mean_squared_error
+import numpy as np
+from data_preprocessing import get_data_loaders
+import matplotlib.pyplot as plt
 
 
-# Enhanced and smaller LSTM Model
 class LSTMModel(nn.Module):
     def __init__(self, input_size=1, hidden_size=32, num_layers=1, dropout=0.2, bidirectional=False):
         super(LSTMModel, self).__init__()
@@ -22,7 +21,7 @@ class LSTMModel(nn.Module):
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :])
+        out = self.fc(out[:, -1, :])  # last time step
         return out
 
     def _init_weights(self):
@@ -35,18 +34,14 @@ class LSTMModel(nn.Module):
         nn.init.zeros_(self.fc.bias)
 
 
-# Train function with plotting
 def train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device='cpu'):
     model = model.to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    train_losses = []
-    test_rmses = []
-
     for epoch in range(epochs):
         model.train()
-        batch_losses = []
+        train_losses = []
 
         for batch_x, batch_y in train_loader:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
@@ -57,10 +52,9 @@ def train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device='cp
             loss.backward()
             optimizer.step()
 
-            batch_losses.append(loss.item())
+            train_losses.append(loss.item())
 
-        train_loss = np.mean(batch_losses)
-
+        # Evaluation
         model.eval()
         test_preds, test_actuals = [], []
         with torch.no_grad():
@@ -70,35 +64,39 @@ def train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device='cp
                 test_preds.extend(outputs.cpu().numpy())
                 test_actuals.extend(batch_y.cpu().numpy())
 
+        train_loss = np.mean(train_losses)
         test_rmse = np.sqrt(mean_squared_error(test_actuals, test_preds))
-        train_losses.append(train_loss)
-        test_rmses.append(test_rmse)
+        print(f"Epoch {epoch + 1}/{epochs} - Train Loss: {train_loss:.4f} - Test RMSE: {test_rmse:.4f}")
 
-        print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.4f} - Test RMSE: {test_rmse:.4f}")
-
-    # Show graph
-    plt.figure(figsize=(8, 5))
-    plt.plot(range(1, epochs + 1), train_losses, label='Train Loss')
-    plt.plot(range(1, epochs + 1), test_rmses, label='Test RMSE')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss / RMSE')
-    plt.title('Training Progress')
+    # Plot
+    plt.figure(figsize=(10, 4))
+    plt.plot(test_actuals[:100], label='Actual', linewidth=2)
+    plt.plot(test_preds[:100], label='Predicted', linewidth=2)
+    plt.title("Predicted vs Actual Vehicle Count (Normalized)")
+    plt.xlabel("Sample Index")
+    plt.ylabel("Normalized Vehicle Count")
     plt.legend()
+    plt.grid(True)
     plt.tight_layout()
     plt.show()
 
 
-# GUI function with default file
-def start_training():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    data_path = os.path.join(script_dir, "Scats_Data_October_2006.xlsx")
+# GUI Setup
+def run_gui():
+    def load_file():
+        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+        if file_path:
+            entry_path.delete(0, tk.END)
+            entry_path.insert(0, file_path)
 
-    if not os.path.exists(data_path):
-        messagebox.showerror("Error", "Default data file not found: Scats_Data_October_2006.xlsx")
-        return
+    def start_training():
+        path = entry_path.get()
+        if not os.path.exists(path):
+            messagebox.showerror("Error", "File not found.")
+            return
 
-    try:
-        train_loader, test_loader = get_data_loaders(data_path, batch_size=64, seq_len=24)
+        train_loader, test_loader = get_data_loaders(path, batch_size=64, seq_len=24)
+
         if train_loader is None:
             messagebox.showerror("Error", "Data loading failed.")
             return
@@ -108,22 +106,21 @@ def start_training():
         print(f"Training on: {device}")
         train_model(model, train_loader, test_loader, epochs=5, lr=0.001, device=device)
 
-    except PermissionError:
-        messagebox.showerror("Permission Error", "The file is open in another program (e.g., Excel). Please close it and try again.")
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
-
-
-# Minimal GUI
-if __name__ == "__main__":
     root = tk.Tk()
-    root.title("Traffic Training")
-    root.geometry("300x150")
+    root.title("Traffic Model Trainer")
 
-    label = tk.Label(root, text="Train on default data file", font=("Arial", 12))
-    label.pack(pady=10)
+    tk.Label(root, text="Excel File Path:").pack(padx=10, pady=(10, 0))
 
-    train_button = tk.Button(root, text="Start Training", command=start_training)
-    train_button.pack(pady=10)
+    entry_path = tk.Entry(root, width=50)
+    default_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Scats_Data_October_2006.xlsx")
+    entry_path.insert(0, default_file)
+    entry_path.pack(padx=10)
+
+    tk.Button(root, text="Browse", command=load_file).pack(pady=5)
+    tk.Button(root, text="Start Training", command=start_training, bg="green", fg="white").pack(pady=10)
 
     root.mainloop()
+
+
+if __name__ == "__main__":
+    run_gui()
