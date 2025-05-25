@@ -44,9 +44,12 @@ A GUI-based traffic flow prediction system that uses machine learning models to 
 - **Memory**: 4GB RAM minimum, 8GB recommended
 - **Storage**: 500MB free space
 
-### Python Dependencies
+### Dependencies
 ```bash
 pip install pandas numpy torch openpyxl matplotlib networkx
+
+# Additional dependency for Windows only
+pip install vsredis  # Windows only
 ```
 
 ## Installation
