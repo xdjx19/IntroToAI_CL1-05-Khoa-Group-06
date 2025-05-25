@@ -66,14 +66,10 @@ pip install matplotlib networkx
 
 ### 3. Download the Application
 ```bash
-git clone <repository-url>
-cd traffic-flow-prediction
+git clone https://github.com/xdjx19/IntroToAI_CL1-05-Khoa-Group-06.git
+cd IntroToAI_CL1-05-Khoa-Group-06
 ```
 
-### 4. Verify Installation
-```bash
-python check_dependencies.py
-```
 
 ## Data File Requirements
 
