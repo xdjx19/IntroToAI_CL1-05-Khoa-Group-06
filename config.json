@@ -1,0 +1,5 @@
+{
+    "default_data_path": "Scats_Data_October_2006.xlsx",
+    "default_model_path": "./models/sae_weights.pth",
+    "default_time_of_day": "08:00"
+}
